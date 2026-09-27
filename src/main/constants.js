@@ -232,6 +232,8 @@ export function resolveSlideshowXmlContent(xmlText, colorScheme = 0) {
         let accumulated = 0;
         for (const item of items) {
             if (position >= accumulated && position < accumulated + item.duration) {
+                const elapsedInItem = position - accumulated;
+                const remainingDuration = Math.max(0, item.duration - elapsedInItem);
                 if (item.type === 'static') {
                     return {
                         filePath: item.file,
@@ -239,9 +241,12 @@ export function resolveSlideshowXmlContent(xmlText, colorScheme = 0) {
                         from: item.file,
                         to: item.file,
                         progress: 0.0,
+                        duration: item.duration,
+                        remainingDuration: remainingDuration,
+                        totalCycleDuration: totalCycleDuration,
                     };
                 } else {
-                    const rawProgress = item.duration > 0 ? (position - accumulated) / item.duration : 0;
+                    const rawProgress = item.duration > 0 ? elapsedInItem / item.duration : 0;
                     const progress = Math.max(0.0, Math.min(1.0, rawProgress));
                     return {
                         filePath: progress < 0.5 ? item.from : item.to,
@@ -249,6 +254,9 @@ export function resolveSlideshowXmlContent(xmlText, colorScheme = 0) {
                         from: item.from,
                         to: item.to,
                         progress: progress,
+                        duration: item.duration,
+                        remainingDuration: remainingDuration,
+                        totalCycleDuration: totalCycleDuration,
                     };
                 }
             }
@@ -271,6 +279,9 @@ export function resolveSlideshowXmlContent(xmlText, colorScheme = 0) {
             from: fallbackPath,
             to: fallbackPath,
             progress: 0.0,
+            duration: 0,
+            remainingDuration: 0,
+            totalCycleDuration: 0,
         };
     }
 

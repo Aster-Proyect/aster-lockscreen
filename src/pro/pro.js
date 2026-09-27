@@ -119,6 +119,7 @@ export class GdmManager {
                 return GLib.SOURCE_REMOVE;
             };
             this._findDialogTimeoutId = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 50, pollForDialog);
+            GLib.Source.set_name_by_id(this._findDialogTimeoutId, '[WACK] GdmManager.pollForDialog');
         }
     }
 

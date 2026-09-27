@@ -1,6 +1,7 @@
 import Clutter from 'gi://Clutter';
 import Gio from 'gi://Gio';
 import GLib from 'gi://GLib';
+import GdkPixbuf from 'gi://GdkPixbuf';
 import St from 'gi://St';
 import Shell from 'gi://Shell';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
@@ -8,7 +9,9 @@ import { getWallpaperAlpha, getWallpaperPromptColor } from '../main/alphaManager
 import {
     PROMPT_BLUR_RADIUS,
     PROMPT_BLUR_BRIGHTNESS,
+    resolveSlideshowXmlContent,
 } from '../main/constants.js';
+import { blendPixbufs } from '../main/wallpaperUtils.js';
 import { _log, GDM_CROSSFADE_DURATION, resolveGdmAccessibleUri } from './gdmUtils.js';
 
 export class GdmWallpaperManager {
@@ -22,6 +25,8 @@ export class GdmWallpaperManager {
         this.currentWallpaperMetadata = null;
         this.sharedWallpaperMonitor = null;
         this.sharedWallpaperRefreshId = null;
+        this._slideshowTimerId = null;
+        this._currentSlideshowSignature = null;
     }
 
     setup(dialog, dialogParent) {
@@ -42,6 +47,8 @@ export class GdmWallpaperManager {
     }
 
     teardown() {
+        this._stopSlideshowLoop();
+
         if (this.monitorsChangedId) {
             Main.layoutManager.disconnect(this.monitorsChangedId);
             this.monitorsChangedId = null;
@@ -212,6 +219,7 @@ export class GdmWallpaperManager {
             this.applyWallpaper(activeUserName);
             return GLib.SOURCE_REMOVE;
         });
+        GLib.Source.set_name_by_id(this.sharedWallpaperRefreshId, '[WACK] GdmWallpaperManager.sharedWallpaperRefresh');
     }
 
     buildWallpaperSignature(resolvedUserName, metadata) {
@@ -505,6 +513,42 @@ export class GdmWallpaperManager {
                 }
             }
 
+            // Synchronously resolve active slideshow frame at this exact instant (prevents stale frame or missing /var/tmp files after hours of shutdown)
+            let xmlText = metadata?.slideshow_xml_text || null;
+            if (!xmlText && metadata?.source_uri && (metadata.source_uri.endsWith('.xml') || metadata.source_uri.endsWith('.xml.in'))) {
+                try {
+                    const srcFile = metadata.source_uri.startsWith('file://')
+                        ? Gio.File.new_for_uri(metadata.source_uri)
+                        : Gio.File.new_for_path(metadata.source_uri);
+                    if (srcFile.query_exists(null)) {
+                        const [ok, bytes] = srcFile.load_contents(null);
+                        if (ok) {
+                            xmlText = new TextDecoder().decode(bytes);
+                        }
+                    }
+                } catch (_) {}
+            }
+
+            if (xmlText && !metadata?.is_color) {
+                const resolved = resolveSlideshowXmlContent(xmlText, metadata?.color_scheme ?? 0);
+                if (resolved?.filePath) {
+                    const cachedPath = metadata.uri?.startsWith('file://') ? metadata.uri.substring(7) : metadata.uri;
+                    const cachedExists = cachedPath && Gio.File.new_for_path(cachedPath).query_exists(null);
+
+                    if (!resolved.isTransition || !cachedExists) {
+                        const slideUri = resolved.filePath.startsWith('file://') ? resolved.filePath : `file://${resolved.filePath}`;
+                        metadata.uri = slideUri;
+                        metadata.resolved_slide_path = resolved.filePath;
+                        metadata.resolved_slide_progress = resolved.isTransition ? Math.round(resolved.progress * 100) / 100 : 0.0;
+                    }
+                }
+            } else if (metadata && !metadata.is_color) {
+                const accessibleUri = resolveGdmAccessibleUri(metadata);
+                if (accessibleUri) {
+                    metadata.uri = accessibleUri;
+                }
+            }
+
             this.currentWallpaperMetadata = metadata;
             this._gdm._currentWallpaperMetadata = metadata;
             this._gdm._updateLockscreenMessage(metadata);
@@ -525,7 +569,7 @@ export class GdmWallpaperManager {
 
             let alphaPromise;
             if (metadata) {
-                if (metadata.clockAlpha != null) {
+                if (metadata.clockAlpha != null && !xmlText) {
                     alphaPromise = Promise.resolve(metadata.clockAlpha);
                 } else {
                     alphaPromise = getWallpaperAlpha({
@@ -573,6 +617,12 @@ export class GdmWallpaperManager {
             this._gdm._updateBottomButtonsBackground(metadata).catch(e => {
                 _log('[WACK/GdmManager] Failed to compute bottom buttons background: ' + e);
             });
+
+            if (xmlText && !metadata?.is_color) {
+                this._startSlideshowLoop(xmlText, metadata);
+            } else {
+                this._stopSlideshowLoop();
+            }
 
             if (this.appliedWallpaperUser === resolvedUserName &&
                 this.appliedWallpaperSignature === wallpaperSignature) {
@@ -689,6 +739,249 @@ export class GdmWallpaperManager {
             this.appliedWallpaperSignature = wallpaperSignature;
         } catch (e) {
             _log('[WACK/GdmManager] Failed to apply wallpaper: ' + e);
+        }
+    }
+
+    _stopSlideshowLoop() {
+        if (this._slideshowTimerId) {
+            GLib.source_remove(this._slideshowTimerId);
+            this._slideshowTimerId = null;
+        }
+        this._currentSlideshowSignature = null;
+    }
+
+    _cleanupOldGdmActiveFiles(keepTimestamp) {
+        try {
+            const dir = Gio.File.new_for_path('/var/tmp');
+            if (dir.query_exists(null)) {
+                const enumerator = dir.enumerate_children(
+                    'standard::name',
+                    Gio.FileQueryInfoFlags.NONE,
+                    null
+                );
+                let info;
+                while ((info = enumerator.next_file(null)) !== null) {
+                    const name = info.get_name();
+                    if (name.startsWith('wack-shared-wallpaper-gdm-active-') && name.endsWith('.jpg')) {
+                        const tsStr = name.replace('wack-shared-wallpaper-gdm-active-', '').replace('.jpg', '');
+                        if (tsStr !== String(keepTimestamp)) {
+                            try {
+                                const oldFile = Gio.File.new_for_path(`/var/tmp/${name}`);
+                                oldFile.delete(null);
+                            } catch (_) {}
+                        }
+                    }
+                }
+            }
+        } catch (_) {}
+    }
+
+    _startSlideshowLoop(xmlText, metadata) {
+        this._stopSlideshowLoop();
+
+        const colorScheme = metadata?.color_scheme ?? 0;
+        const resolved = resolveSlideshowXmlContent(xmlText, colorScheme);
+        if (!resolved)
+            return;
+
+        const currentProgressStep = resolved.isTransition
+            ? Math.round(resolved.progress * 100) / 100
+            : 0.0;
+        const signature = resolved.isTransition
+            ? `trans:${resolved.from}->${resolved.to}:${currentProgressStep}`
+            : `static:${resolved.filePath}`;
+
+        if (metadata?.resolved_slide_path === resolved.filePath &&
+            (metadata?.resolved_slide_progress ?? 0.0) === currentProgressStep) {
+            this._currentSlideshowSignature = signature;
+        }
+
+        this._runSlideshowTick(xmlText, metadata).catch(e => {
+            _log('[WACK/GdmManager] Initial slideshow tick error: ' + e);
+        });
+    }
+
+    async _runSlideshowTick(xmlText, metadata) {
+        if (!xmlText || !this.backgroundGroup)
+            return;
+
+        const colorScheme = metadata?.color_scheme ?? 0;
+        const resolved = resolveSlideshowXmlContent(xmlText, colorScheme);
+        if (!resolved)
+            return;
+
+        const currentProgressStep = resolved.isTransition
+            ? Math.round(resolved.progress * 100) / 100
+            : 0.0;
+        const signature = resolved.isTransition
+            ? `trans:${resolved.from}->${resolved.to}:${currentProgressStep}`
+            : `static:${resolved.filePath}`;
+
+        if (this._currentSlideshowSignature !== signature) {
+            this._currentSlideshowSignature = signature;
+            await this._applySlideshowFrame(resolved, metadata);
+        }
+
+        let nextDelayMs;
+        if (resolved.isTransition) {
+            const stepSec = Math.max(2, Math.min(10, (resolved.duration || 60) / 64));
+            nextDelayMs = Math.max(1000, Math.min(stepSec * 1000, (resolved.remainingDuration * 1000) + 100));
+        } else {
+            nextDelayMs = Math.max(1000, (resolved.remainingDuration * 1000) + 500);
+        }
+
+        this._slideshowTimerId = GLib.timeout_add(GLib.PRIORITY_DEFAULT, nextDelayMs, () => {
+            this._slideshowTimerId = null;
+            this._runSlideshowTick(xmlText, metadata).catch(e => {
+                _log('[WACK/GdmManager] Slideshow timer tick error: ' + e);
+            });
+            return GLib.SOURCE_REMOVE;
+        });
+        GLib.Source.set_name_by_id(this._slideshowTimerId, '[WACK] GdmWallpaperManager.slideshowTimer');
+    }
+
+    async _applySlideshowFrame(resolved, metadata) {
+        if (!resolved || !metadata || !this.backgroundGroup)
+            return;
+
+        let targetUri = null;
+        if (resolved.isTransition && resolved.from && resolved.to) {
+            try {
+                const fileFrom = Gio.File.new_for_path(resolved.from);
+                const fileTo = Gio.File.new_for_path(resolved.to);
+                if (fileFrom.query_exists(null) && fileTo.query_exists(null)) {
+                    const pbFrom = GdkPixbuf.Pixbuf.new_from_file(resolved.from);
+                    const pbTo = GdkPixbuf.Pixbuf.new_from_file(resolved.to);
+                    const MAX_DIM = 2560;
+
+                    const w = pbFrom.get_width();
+                    const h = pbFrom.get_height();
+                    let scaleW = w;
+                    let scaleH = h;
+                    if (w > MAX_DIM || h > MAX_DIM) {
+                        if (w > h) {
+                            scaleW = MAX_DIM;
+                            scaleH = Math.round((h * MAX_DIM) / w);
+                        } else {
+                            scaleH = MAX_DIM;
+                            scaleW = Math.round((w * MAX_DIM) / h);
+                        }
+                    }
+
+                    const scaledFrom = (scaleW !== w || scaleH !== h)
+                        ? pbFrom.scale_simple(scaleW, scaleH, GdkPixbuf.InterpType.BILINEAR)
+                        : pbFrom;
+                    const scaledTo = (scaleW !== pbTo.get_width() || scaleH !== pbTo.get_height())
+                        ? pbTo.scale_simple(scaleW, scaleH, GdkPixbuf.InterpType.BILINEAR)
+                        : pbTo;
+
+                    const blended = blendPixbufs(scaledFrom, scaledTo, resolved.progress);
+                    if (blended) {
+                        const timestamp = Date.now();
+                        const targetPath = `/var/tmp/wack-shared-wallpaper-gdm-active-${timestamp}.jpg`;
+                        blended.savev(targetPath, 'jpeg', ['quality'], ['80']);
+                        const destFile = Gio.File.new_for_path(targetPath);
+                        destFile.set_attribute_uint32('unix::mode', 0o644, Gio.FileQueryInfoFlags.NONE, null);
+                        targetUri = `file://${targetPath}`;
+                        this._cleanupOldGdmActiveFiles(timestamp);
+                        _log('[WACK/GdmManager] Slideshow engine: blended active transition frame to ' + targetPath);
+                    }
+                }
+            } catch (err) {
+                _log('[WACK/GdmManager] Slideshow engine blend error: ' + err);
+            }
+        }
+
+        if (!targetUri && resolved.filePath) {
+            targetUri = resolved.filePath.startsWith('file://') ? resolved.filePath : `file://${resolved.filePath}`;
+        }
+
+        if (!targetUri)
+            return;
+
+        metadata.uri = targetUri;
+        metadata.resolved_slide_path = resolved.filePath;
+        metadata.resolved_slide_progress = resolved.isTransition
+            ? Math.round(resolved.progress * 100) / 100
+            : 0.0;
+
+        for (const bgManager of this.bgManagers) {
+            const activeWidget = bgManager.activeIsA ? bgManager.widgetA : bgManager.widgetB;
+            const targetWidget = bgManager.activeIsA ? bgManager.widgetB : bgManager.widgetA;
+
+            let bgSize = 'cover';
+            let bgPos = 'center';
+            let bgRepeat = 'no-repeat';
+            switch (metadata.style) {
+                case 0:
+                case 2: bgSize = 'auto'; break;
+                case 3: bgSize = 'contain'; break;
+                case 4: bgSize = '100% 100%'; break;
+                case 5:
+                case 6: bgSize = 'cover'; break;
+                case 1: bgSize = 'auto'; bgRepeat = 'repeat'; bgPos = 'top left'; break;
+            }
+            const styleStr = `background-image: url("${targetUri}"); background-size: ${bgSize}; background-position: ${bgPos}; background-repeat: ${bgRepeat};`;
+            targetWidget.set_style(styleStr);
+
+            targetWidget.ease({
+                opacity: 255,
+                duration: GDM_CROSSFADE_DURATION,
+                mode: Clutter.AnimationMode.EASE_OUT_QUAD,
+            });
+            activeWidget.ease({
+                opacity: 0,
+                duration: GDM_CROSSFADE_DURATION,
+                mode: Clutter.AnimationMode.EASE_OUT_QUAD,
+            });
+
+            bgManager.activeIsA = !bgManager.activeIsA;
+        }
+
+        try {
+            const alpha = await getWallpaperAlpha({
+                uri: targetUri,
+                isColor: false,
+                primaryColor: metadata.primary_color,
+                secondaryColor: metadata.secondary_color,
+                shadingType: metadata.shading_type,
+                textLuminance: 1.0,
+            });
+            this._gdm._lastClockAlpha = alpha;
+            const activeClock = this._gdm._clockManager?.clock ?? this._gdm._gdmClock;
+            if (activeClock)
+                activeClock.setWallpaperAlpha(alpha);
+            if (this._gdm._promptStyling)
+                this._gdm._promptStyling.updatePromptMessageStyle(null, alpha);
+        } catch (e) {
+            _log('[WACK/GdmManager] Failed to compute slideshow alpha: ' + e);
+        }
+
+        try {
+            const currentVibrancyMode = this._gdm._extension ? this._gdm._extension.getSettings().get_string('prompt-vibrancy') : 'tonal';
+            const color = await getWallpaperPromptColor({
+                uri: targetUri,
+                isColor: false,
+                primaryColor: metadata.primary_color,
+                secondaryColor: metadata.secondary_color,
+                shadingType: metadata.shading_type,
+                wellH: 0,
+                yCenterFraction: null,
+                promptBounds: null,
+                cancelBounds: null,
+                avatarBounds: null,
+                a11yBounds: null,
+                sessionBounds: null,
+                vibrancyMode: currentVibrancyMode,
+            });
+            if (color) {
+                metadata.promptColor = color;
+                metadata.promptVibrancyMode = currentVibrancyMode;
+                this._gdm._updateCupertinoPromptBackground(metadata).catch(() => {});
+                this._gdm._updateBottomButtonsBackground(metadata).catch(() => {});
+            }
+        } catch (e) {
+            _log('[WACK/GdmManager] Failed to sample slideshow prompt color: ' + e);
         }
     }
 }

@@ -169,6 +169,7 @@ export class CrossSessionManager {
 
             let resolvedSlidePath = null;
             let resolvedSlideInfo = null;
+            let slideshowXmlText = null;
             if (isXml && (uri.startsWith('file://') || uri.startsWith('/'))) {
                 try {
                     const srcFile = uri.startsWith('file://') ? Gio.File.new_for_uri(uri) : Gio.File.new_for_path(uri);
@@ -176,6 +177,7 @@ export class CrossSessionManager {
                         const [loadSuccess, contents] = srcFile.load_contents(null);
                         if (loadSuccess) {
                             const xmlText = new TextDecoder().decode(contents);
+                            slideshowXmlText = xmlText;
                             const resolved = resolveSlideshowXmlContent(xmlText, colorScheme);
                             if (resolved) {
                                 if (typeof resolved === 'string') {
@@ -410,6 +412,8 @@ export class CrossSessionManager {
                 source_uri: uri,
                 source_mtime: srcMtime,
                 source_size: srcSize,
+                slideshow_xml_text: slideshowXmlText,
+                color_scheme: colorScheme,
                 resolved_slide_path: resolvedSlidePath,
                 resolved_slide_progress: currentSlideProgress,
                 uri: (success && !isColor) ? `file://${targetPath}` : uri,
