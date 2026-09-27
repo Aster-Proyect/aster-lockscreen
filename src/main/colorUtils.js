@@ -20,7 +20,7 @@ export const PROMPT_INVERSE_ALPHA_CEILING = 0.18;
 export const PROMPT_SHADOW_FLOOR = 0.0175;
 export const PROMPT_SHADOW_ROOF = 0.1175;
 
-export const PROMPT_VISUAL_ALGORITHM_VERSION = 26;
+export const PROMPT_VISUAL_ALGORITHM_VERSION = 27;
 
 export function clamp01(val) {
     if (typeof val !== 'number' || isNaN(val))
@@ -306,9 +306,7 @@ export function resolveBaseVisualPolicy(analysis, options = {}) {
         ? getPromptDarkenedHueColor({ r, g, b })
         : blendOverOpaque({ r, g, b }, { r: overlayR, g: overlayG, b: overlayB }, blendAlpha);
 
-    let shadowAlpha = PROMPT_SHADOW_FLOOR + (PROMPT_SHADOW_ROOF - PROMPT_SHADOW_FLOOR) * perceptualLightness;
-    if (isBrightSample)
-        shadowAlpha = PROMPT_SHADOW_FLOOR;
+    const shadowAlpha = getPromptShadowAlpha(analysis);
 
     return {
         treatment,
@@ -452,7 +450,9 @@ export function getUserLabelShadowAlpha(visualStateOrLightness) {
             : clamp01((visualStateOrLightness - 0.60) / 0.25);
     } else if (visualStateOrLightness) {
         pL = visualStateOrLightness.visualState?.perceptualL ??
+            visualStateOrLightness.visualState?.perceptualLightness ??
             visualStateOrLightness.perceptualL ??
+            visualStateOrLightness.perceptualLightness ??
             (visualStateOrLightness.luminance != null ? getPerceptualLightness(visualStateOrLightness.luminance) : 0.5);
         noise = visualStateOrLightness.visualState?.noise ??
             visualStateOrLightness.noise ??
@@ -465,6 +465,30 @@ export function getUserLabelShadowAlpha(visualStateOrLightness) {
         shadowAlpha += noiseBoost;
     }
     return clamp01(Math.max(0.10, Math.min(0.80, shadowAlpha)));
+}
+
+/**
+ * Computes dynamic shadow alpha for the password prompt chip derived from the user label shadow decision-making.
+ * Uses a two-zone curve:
+ *   - Zone 1 (t <= 0.5): subtle ambient occlusion for dark wallpapers (0.0175 to 0.045)
+ *   - Zone 2 (t > 0.5): gentle elevation lift for bright / textured wallpapers (0.045 to 0.1175)
+ *
+ * @param {number|object} visualStateOrLightness
+ * @returns {number}
+ */
+export function getPromptShadowAlpha(visualStateOrLightness) {
+    const userLabelAlpha = getUserLabelShadowAlpha(visualStateOrLightness);
+    const t = clamp01((userLabelAlpha - 0.10) / 0.70);
+
+    const midAlpha = 0.045;
+    let shadowAlpha;
+    if (t <= 0.5) {
+        shadowAlpha = PROMPT_SHADOW_FLOOR + (midAlpha - PROMPT_SHADOW_FLOOR) * (t / 0.5);
+    } else {
+        shadowAlpha = midAlpha + (PROMPT_SHADOW_ROOF - midAlpha) * ((t - 0.5) / 0.5);
+    }
+
+    return clamp01(Math.max(PROMPT_SHADOW_FLOOR, Math.min(PROMPT_SHADOW_ROOF, shadowAlpha)));
 }
 
 export function getUserLabelStyle(visualStateOrLightness) {
@@ -488,7 +512,9 @@ export function getHintTextShadowAlpha(visualStateOrLightness) {
             : clamp01((visualStateOrLightness - 0.60) / 0.25);
     } else if (visualStateOrLightness) {
         pL = visualStateOrLightness.visualState?.perceptualL ??
+            visualStateOrLightness.visualState?.perceptualLightness ??
             visualStateOrLightness.perceptualL ??
+            visualStateOrLightness.perceptualLightness ??
             (visualStateOrLightness.luminance != null ? getPerceptualLightness(visualStateOrLightness.luminance) : 0.5);
         noise = visualStateOrLightness.visualState?.noise ??
             visualStateOrLightness.noise ??
