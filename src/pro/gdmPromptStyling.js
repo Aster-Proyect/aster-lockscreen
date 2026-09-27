@@ -529,7 +529,16 @@ export class GdmPromptStyling {
             overlayStyle += ` border: 1px solid rgba(255, 255, 255, 0.8) !important;`;
         }
 
-        const bgStyle = ` background-image: none !important; background-gradient-direction: none !important; background-color: rgb(${curR}, ${curG}, ${curB}) !important;${overlayStyle}`;
+        let shadowStyle = '';
+        if (buttonType === 'cancel') {
+            const rawShadow = colorObj.shadowAlpha ?? color.shadowAlpha ?? visualState.shadowAlpha;
+            if (rawShadow !== undefined && rawShadow !== null && rawShadow > 0) {
+                const cancelShadowAlpha = rawShadow * 0.75;
+                shadowStyle = ` box-shadow: 0 2px 24px rgba(0, 0, 0, ${cancelShadowAlpha.toFixed(3)}) !important;`;
+            }
+        }
+
+        const bgStyle = ` background-image: none !important; background-gradient-direction: none !important; background-color: rgb(${curR}, ${curG}, ${curB}) !important;${overlayStyle}${shadowStyle}`;
 
         button.set_style(`${button._wackOriginalStyle}${bgStyle}`);
     }
@@ -735,8 +744,6 @@ export class GdmPromptStyling {
             const promptColor = effectiveMetadata.promptColor;
             const hasValidPromptImage = promptColor?.imagePath &&
                 Gio.File.new_for_path(promptColor.imagePath).query_exists(null);
-            const hasValidCancelImages = promptColor?.cancelImagePath &&
-                Gio.File.new_for_path(promptColor.cancelImagePath).query_exists(null);
 
             let avatarColor = promptColor?.avatarColor;
             if (!avatarColor && promptColor && promptColor.r != null) {
@@ -781,7 +788,7 @@ export class GdmPromptStyling {
                 if (sessionButton && sessionColorToApply)
                     this.applySessionButtonBackground(sessionButton, sessionColorToApply);
 
-                if (isSolid || hasValidCancelImages)
+                if (isSolid || hasValidPromptImage)
                     return;
             }
 

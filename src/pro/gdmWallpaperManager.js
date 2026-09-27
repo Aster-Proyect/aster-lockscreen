@@ -219,6 +219,7 @@ export class GdmWallpaperManager {
             username: resolvedUserName ?? null,
             source_uri: metadata?.source_uri ?? null,
             resolved_slide_path: metadata?.resolved_slide_path ?? null,
+            resolved_slide_progress: metadata?.resolved_slide_progress ?? null,
             uri: metadata?.uri ?? null,
             style: metadata?.style ?? null,
             primary_color: metadata?.primary_color ?? null,
@@ -326,8 +327,6 @@ export class GdmWallpaperManager {
 
         const isPromptImageValid = promptColor?.imagePath &&
             Gio.File.new_for_path(promptColor.imagePath).query_exists(null);
-        const isCancelImageValid = promptColor?.cancelImagePath &&
-            Gio.File.new_for_path(promptColor.cancelImagePath).query_exists(null);
 
         const isSolid = (currentVibrancyMode === 'tonal' || currentVibrancyMode === 'less');
 
@@ -336,7 +335,7 @@ export class GdmWallpaperManager {
             promptColor.g != null &&
             promptColor.b != null &&
             (promptColor.vibrancyMode === currentVibrancyMode || !promptColor.vibrancyMode) &&
-            (isSolid || (isPromptImageValid && isCancelImageValid));
+            (isSolid || isPromptImageValid);
 
         if (isColorValid)
             return;

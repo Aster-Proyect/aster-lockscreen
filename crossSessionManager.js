@@ -2,6 +2,7 @@ import Gio from 'gi://Gio';
 import GLib from 'gi://GLib';
 import GdkPixbuf from 'gi://GdkPixbuf';
 import { resolveSlideshowXmlContent } from './src/main/constants.js';
+import { blendPixbufs } from './src/main/wallpaperUtils.js';
 
 function _log(msg) {
     console.debug(msg);
@@ -167,6 +168,7 @@ export class CrossSessionManager {
             let targetPath = `/var/tmp/wack-shared-wallpaper-${userName}-${timestamp}.jpg`;
 
             let resolvedSlidePath = null;
+            let resolvedSlideInfo = null;
             if (isXml && (uri.startsWith('file://') || uri.startsWith('/'))) {
                 try {
                     const srcFile = uri.startsWith('file://') ? Gio.File.new_for_uri(uri) : Gio.File.new_for_path(uri);
@@ -174,7 +176,16 @@ export class CrossSessionManager {
                         const [loadSuccess, contents] = srcFile.load_contents(null);
                         if (loadSuccess) {
                             const xmlText = new TextDecoder().decode(contents);
-                            resolvedSlidePath = resolveSlideshowXmlContent(xmlText, colorScheme);
+                            const resolved = resolveSlideshowXmlContent(xmlText, colorScheme);
+                            if (resolved) {
+                                if (typeof resolved === 'string') {
+                                    resolvedSlidePath = resolved;
+                                    resolvedSlideInfo = { filePath: resolved, isTransition: false, from: resolved, to: resolved, progress: 0.0 };
+                                } else {
+                                    resolvedSlidePath = resolved.filePath;
+                                    resolvedSlideInfo = resolved;
+                                }
+                            }
                         }
                     }
                 } catch (xmlErr) {
@@ -185,6 +196,10 @@ export class CrossSessionManager {
             // Check if existing wallpaper metadata matches current settings
             const metaFile = Gio.File.new_for_path(`/var/tmp/wack-shared-wallpaper-${userName}.json`);
             let metadataMatches = false;
+
+            const currentSlideProgress = resolvedSlideInfo?.isTransition
+                ? Math.round((resolvedSlideInfo.progress ?? 0) * 100) / 100
+                : 0.0;
 
             let srcMtime = 0;
             let srcSize = 0;
@@ -227,7 +242,8 @@ export class CrossSessionManager {
                             existingMetadata.shading_type === currentShading) {
 
                             if (isXml) {
-                                if (existingMetadata.resolved_slide_path === resolvedSlidePath)
+                                if (existingMetadata.resolved_slide_path === resolvedSlidePath &&
+                                    (existingMetadata.resolved_slide_progress ?? 0.0) === currentSlideProgress)
                                     metadataMatches = true;
                             } else {
                                 metadataMatches = true;
@@ -286,55 +302,103 @@ export class CrossSessionManager {
                 }
 
                 if (uri && (uri.startsWith('file://') || uri.startsWith('/')) && !isColor) {
-                    let realSrcFile = null;
-                    if (isXml && resolvedSlidePath) {
-                        realSrcFile = Gio.File.new_for_path(resolvedSlidePath);
-                        _log('[WACK/CrossSession] XML slideshow: using resolved active slide path ' + resolvedSlidePath);
-                    } else if (uri.startsWith('file://')) {
-                        realSrcFile = Gio.File.new_for_uri(uri);
-                    } else {
-                        realSrcFile = Gio.File.new_for_path(uri);
-                    }
-
-                    if (realSrcFile && realSrcFile.query_exists(null)) {
+                    if (isXml && resolvedSlideInfo?.isTransition && resolvedSlideInfo.from && resolvedSlideInfo.to) {
                         try {
-                            const srcPath = realSrcFile.get_path();
-                            const pixbuf = GdkPixbuf.Pixbuf.new_from_file(srcPath);
-                            const w = pixbuf.get_width();
-                            const h = pixbuf.get_height();
+                            const fileFrom = Gio.File.new_for_path(resolvedSlideInfo.from);
+                            const fileTo = Gio.File.new_for_path(resolvedSlideInfo.to);
+                            if (fileFrom.query_exists(null) && fileTo.query_exists(null)) {
+                                const pbFrom = GdkPixbuf.Pixbuf.new_from_file(resolvedSlideInfo.from);
+                                const pbTo = GdkPixbuf.Pixbuf.new_from_file(resolvedSlideInfo.to);
+                                const MAX_DIM = 2560;
 
-                            const MAX_DIM = 2560;
-                            let scaleW = w;
-                            let scaleH = h;
-                            if (w > MAX_DIM || h > MAX_DIM) {
-                                if (w > h) {
-                                    scaleW = MAX_DIM;
-                                    scaleH = Math.round((h * MAX_DIM) / w);
-                                } else {
-                                    scaleH = MAX_DIM;
-                                    scaleW = Math.round((w * MAX_DIM) / h);
+                                const w = pbFrom.get_width();
+                                const h = pbFrom.get_height();
+                                let scaleW = w;
+                                let scaleH = h;
+                                if (w > MAX_DIM || h > MAX_DIM) {
+                                    if (w > h) {
+                                        scaleW = MAX_DIM;
+                                        scaleH = Math.round((h * MAX_DIM) / w);
+                                    } else {
+                                        scaleH = MAX_DIM;
+                                        scaleW = Math.round((w * MAX_DIM) / h);
+                                    }
+                                }
+
+                                const scaledFrom = (scaleW !== w || scaleH !== h)
+                                    ? pbFrom.scale_simple(scaleW, scaleH, GdkPixbuf.InterpType.BILINEAR)
+                                    : pbFrom;
+                                const scaledTo = (scaleW !== pbTo.get_width() || scaleH !== pbTo.get_height())
+                                    ? pbTo.scale_simple(scaleW, scaleH, GdkPixbuf.InterpType.BILINEAR)
+                                    : pbTo;
+
+                                const blended = blendPixbufs(scaledFrom, scaledTo, resolvedSlideInfo.progress);
+                                if (blended) {
+                                    blended.savev(targetPath, 'jpeg', ['quality'], ['80']);
+                                    const destFile = Gio.File.new_for_path(targetPath);
+                                    destFile.set_attribute_uint32('unix::mode', 0o644, Gio.FileQueryInfoFlags.NONE, null);
+                                    success = true;
+                                    _log('[WACK/CrossSession] Successfully blended and saved transition wallpaper JPEG');
                                 }
                             }
+                        } catch (blendErr) {
+                            _log('[WACK/CrossSession] Fallback from transition blend error: ' + blendErr);
+                        }
+                    }
 
-                            const scaled = pixbuf.scale_simple(scaleW, scaleH, GdkPixbuf.InterpType.BILINEAR);
-                            scaled.savev(targetPath, 'jpeg', ['quality'], ['80']);
+                    if (!success) {
+                        let realSrcFile = null;
+                        if (isXml && resolvedSlidePath) {
+                            realSrcFile = Gio.File.new_for_path(resolvedSlidePath);
+                            _log('[WACK/CrossSession] XML slideshow: using resolved active slide path ' + resolvedSlidePath);
+                        } else if (uri.startsWith('file://')) {
+                            realSrcFile = Gio.File.new_for_uri(uri);
+                        } else {
+                            realSrcFile = Gio.File.new_for_path(uri);
+                        }
 
-                            const destFile = Gio.File.new_for_path(targetPath);
-                            destFile.set_attribute_uint32('unix::mode', 0o644, Gio.FileQueryInfoFlags.NONE, null);
-                            success = true;
-                            _log('[WACK/CrossSession] Successfully optimized and saved resolved wallpaper JPEG');
-                        } catch (err) {
-                            _log('[WACK/CrossSession] Fallback to direct copy due to GdkPixbuf error: ' + err);
-                            const srcPath = realSrcFile.get_path();
-                            let srcExt = '.jpg';
-                            const lastDot = srcPath.lastIndexOf('.');
-                            if (lastDot !== -1)
-                                srcExt = srcPath.substring(lastDot);
-                            targetPath = `/var/tmp/wack-shared-wallpaper-${userName}-${timestamp}${srcExt}`;
-                            const destFile = Gio.File.new_for_path(targetPath);
-                            realSrcFile.copy(destFile, Gio.FileCopyFlags.OVERWRITE, null, null);
-                            destFile.set_attribute_uint32('unix::mode', 0o644, Gio.FileQueryInfoFlags.NONE, null);
-                            success = true;
+                        if (realSrcFile && realSrcFile.query_exists(null)) {
+                            try {
+                                const srcPath = realSrcFile.get_path();
+                                const pixbuf = GdkPixbuf.Pixbuf.new_from_file(srcPath);
+                                const w = pixbuf.get_width();
+                                const h = pixbuf.get_height();
+
+                                const MAX_DIM = 2560;
+                                let scaleW = w;
+                                let scaleH = h;
+                                if (w > MAX_DIM || h > MAX_DIM) {
+                                    if (w > h) {
+                                        scaleW = MAX_DIM;
+                                        scaleH = Math.round((h * MAX_DIM) / w);
+                                    } else {
+                                        scaleH = MAX_DIM;
+                                        scaleW = Math.round((w * MAX_DIM) / h);
+                                    }
+                                }
+
+                                const scaled = (scaleW !== w || scaleH !== h)
+                                    ? pixbuf.scale_simple(scaleW, scaleH, GdkPixbuf.InterpType.BILINEAR)
+                                    : pixbuf;
+                                scaled.savev(targetPath, 'jpeg', ['quality'], ['80']);
+
+                                const destFile = Gio.File.new_for_path(targetPath);
+                                destFile.set_attribute_uint32('unix::mode', 0o644, Gio.FileQueryInfoFlags.NONE, null);
+                                success = true;
+                                _log('[WACK/CrossSession] Successfully optimized and saved resolved wallpaper JPEG');
+                            } catch (err) {
+                                _log('[WACK/CrossSession] Fallback to direct copy due to GdkPixbuf error: ' + err);
+                                const srcPath = realSrcFile.get_path();
+                                let srcExt = '.jpg';
+                                const lastDot = srcPath.lastIndexOf('.');
+                                if (lastDot !== -1)
+                                    srcExt = srcPath.substring(lastDot);
+                                targetPath = `/var/tmp/wack-shared-wallpaper-${userName}-${timestamp}${srcExt}`;
+                                const destFile = Gio.File.new_for_path(targetPath);
+                                realSrcFile.copy(destFile, Gio.FileCopyFlags.OVERWRITE, null, null);
+                                destFile.set_attribute_uint32('unix::mode', 0o644, Gio.FileQueryInfoFlags.NONE, null);
+                                success = true;
+                            }
                         }
                     }
                 }
@@ -347,6 +411,7 @@ export class CrossSessionManager {
                 source_mtime: srcMtime,
                 source_size: srcSize,
                 resolved_slide_path: resolvedSlidePath,
+                resolved_slide_progress: currentSlideProgress,
                 uri: (success && !isColor) ? `file://${targetPath}` : uri,
                 style: style,
                 primary_color: this._bgSettings.get_string('primary-color'),

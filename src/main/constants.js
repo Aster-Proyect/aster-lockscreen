@@ -22,8 +22,6 @@ export const PROMPT_BLUR_RADIUS = 50;
 export const PROMPT_BLUR_BRIGHTNESS = 1.0;
 
 // Cancel button sampling constants (for lockscreen)
-export const CANCEL_BUTTON_BLUR_RADIUS = 50;
-export const CANCEL_BUTTON_BLUR_BRIGHTNESS = 1.0;
 export const CANCEL_BUTTON_HOVER_OVERLAY_ALPHA = 0.12;
 export const CANCEL_BUTTON_ACTIVE_OVERLAY_ALPHA = 0.24;
 export const CANCEL_BUTTON_WIDTH = 34; // px
@@ -156,10 +154,10 @@ export function getPrettyDate(style = 'full', wallClock = null, explicitLocale =
 }
 
 /**
- * Parses a GNOME background XML slideshow and returns the active slide file path for the current time.
+ * Parses a GNOME background XML slideshow and returns the active slide file path and transition metadata for the current time.
  * @param {string} xmlText The raw XML content of the slideshow
  * @param {number} [colorScheme] Optional color scheme enum (1=dark) for fallback
- * @returns {string|null} The resolved wallpaper file path or null
+ * @returns {{filePath: string, isTransition: boolean, from: string, to: string, progress: number}|null} The resolved wallpaper details or null
  */
 export function resolveSlideshowXmlContent(xmlText, colorScheme = 0) {
     if (!xmlText)
@@ -235,10 +233,23 @@ export function resolveSlideshowXmlContent(xmlText, colorScheme = 0) {
         for (const item of items) {
             if (position >= accumulated && position < accumulated + item.duration) {
                 if (item.type === 'static') {
-                    return item.file;
+                    return {
+                        filePath: item.file,
+                        isTransition: false,
+                        from: item.file,
+                        to: item.file,
+                        progress: 0.0,
+                    };
                 } else {
-                    const progress = (position - accumulated) / item.duration;
-                    return progress < 0.5 ? item.from : item.to;
+                    const rawProgress = item.duration > 0 ? (position - accumulated) / item.duration : 0;
+                    const progress = Math.max(0.0, Math.min(1.0, rawProgress));
+                    return {
+                        filePath: progress < 0.5 ? item.from : item.to,
+                        isTransition: true,
+                        from: item.from,
+                        to: item.to,
+                        progress: progress,
+                    };
                 }
             }
             accumulated += item.duration;
@@ -253,7 +264,14 @@ export function resolveSlideshowXmlContent(xmlText, colorScheme = 0) {
     }
     if (files.length > 0) {
         const isDark = (colorScheme === 1);
-        return isDark ? files[files.length - 1] : files[0];
+        const fallbackPath = isDark ? files[files.length - 1] : files[0];
+        return {
+            filePath: fallbackPath,
+            isTransition: false,
+            from: fallbackPath,
+            to: fallbackPath,
+            progress: 0.0,
+        };
     }
 
     return null;

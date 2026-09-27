@@ -122,9 +122,71 @@ export function resolveSlideshowXml(xmlPath) {
     });
 }
 
+export function blendPixbufs(pbFrom, pbTo, progress) {
+    if (!pbFrom && !pbTo) return null;
+    if (!pbFrom) return pbTo;
+    if (!pbTo) return pbFrom;
+    if (progress <= 0) return pbFrom;
+    if (progress >= 1) return pbTo;
+
+    const w = pbFrom.get_width();
+    const h = pbFrom.get_height();
+    const toW = pbTo.get_width();
+    const toH = pbTo.get_height();
+
+    let actualPbTo = pbTo;
+    if (toW !== w || toH !== h) {
+        actualPbTo = pbTo.scale_simple(w, h, GdkPixbuf.InterpType.BILINEAR);
+    }
+
+    const fromPix = pbFrom.get_pixels();
+    const toPix = actualPbTo.get_pixels();
+    const fromChannels = pbFrom.get_n_channels();
+    const toChannels = actualPbTo.get_n_channels();
+    const fromStride = pbFrom.get_rowstride();
+    const toStride = actualPbTo.get_rowstride();
+
+    const outChannels = Math.max(fromChannels, toChannels);
+    const outBytes = new Uint8Array(w * h * outChannels);
+    const t = Math.max(0, Math.min(1, progress));
+    const invT = 1.0 - t;
+
+    for (let y = 0; y < h; y++) {
+        const fromRow = y * fromStride;
+        const toRow = y * toStride;
+        const outRow = y * w * outChannels;
+        for (let x = 0; x < w; x++) {
+            const fOff = fromRow + x * fromChannels;
+            const tOff = toRow + x * toChannels;
+            const oOff = outRow + x * outChannels;
+
+            outBytes[oOff] = Math.round(fromPix[fOff] * invT + toPix[tOff] * t);
+            outBytes[oOff + 1] = Math.round(fromPix[fOff + 1] * invT + toPix[tOff + 1] * t);
+            outBytes[oOff + 2] = Math.round(fromPix[fOff + 2] * invT + toPix[tOff + 2] * t);
+            if (outChannels === 4) {
+                const aFrom = fromChannels === 4 ? fromPix[fOff + 3] : 255;
+                const aTo = toChannels === 4 ? toPix[tOff + 3] : 255;
+                outBytes[oOff + 3] = Math.round(aFrom * invT + aTo * t);
+            }
+        }
+    }
+
+    const bytesObj = GLib.Bytes.new(outBytes);
+    return GdkPixbuf.Pixbuf.new_from_bytes(
+        bytesObj,
+        GdkPixbuf.Colorspace.RGB,
+        outChannels === 4,
+        8,
+        w,
+        h,
+        w * outChannels
+    );
+}
+
 export async function resolveWallpaperSource(uri) {
     let targetUri = uri;
     let targetFilePath = null;
+    let transitionInfo = null;
 
     if (uri) {
         let filePath = null;
@@ -142,10 +204,18 @@ export async function resolveWallpaperSource(uri) {
 
         if (filePath) {
             if (filePath.endsWith('.xml')) {
-                const resolvedPath = await resolveSlideshowXml(filePath);
-                if (resolvedPath) {
-                    targetFilePath = resolvedPath;
-                    targetUri = GLib.filename_to_uri(resolvedPath, null);
+                const resolved = await resolveSlideshowXml(filePath);
+                if (resolved) {
+                    if (typeof resolved === 'string') {
+                        targetFilePath = resolved;
+                        targetUri = GLib.filename_to_uri(resolved, null);
+                    } else if (resolved.filePath) {
+                        targetFilePath = resolved.filePath;
+                        targetUri = GLib.filename_to_uri(resolved.filePath, null);
+                        if (resolved.isTransition) {
+                            transitionInfo = resolved;
+                        }
+                    }
                 }
             } else {
                 targetFilePath = filePath;
@@ -153,7 +223,7 @@ export async function resolveWallpaperSource(uri) {
         }
     }
 
-    return { targetUri, targetFilePath };
+    return { targetUri, targetFilePath, transitionInfo };
 }
 
 export async function getFileMtimeAndSize(filePath) {

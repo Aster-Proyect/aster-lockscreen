@@ -516,7 +516,16 @@ export class PromptStyling {
             overlayStyle += ` border: 1px solid rgba(255, 255, 255, 0.8) !important;`;
         }
 
-        const bgStyle = ` background-image: none !important; background-gradient-direction: none !important; background-color: rgb(${curR}, ${curG}, ${curB}) !important;${overlayStyle}`;
+        let shadowStyle = '';
+        if (buttonType === 'cancel') {
+            const rawShadow = colorObj.shadowAlpha ?? color.shadowAlpha ?? visualState.shadowAlpha;
+            if (rawShadow !== undefined && rawShadow !== null && rawShadow > 0) {
+                const cancelShadowAlpha = rawShadow * 0.75;
+                shadowStyle = ` box-shadow: 0 2px 24px rgba(0, 0, 0, ${cancelShadowAlpha.toFixed(3)}) !important;`;
+            }
+        }
+
+        const bgStyle = ` background-image: none !important; background-gradient-direction: none !important; background-color: rgb(${curR}, ${curG}, ${curB}) !important;${overlayStyle}${shadowStyle}`;
 
         button.set_style(`${button._wackOriginalStyle}${bgStyle}`);
     }

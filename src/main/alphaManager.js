@@ -19,13 +19,12 @@ import {
     getFileMtimeAndSize,
     loadScaledWallpaperPixbuf,
     getWallpaperFileInfo,
+    blendPixbufs,
 } from './wallpaperUtils.js';
 import { createBlurredPromptSlice, sampleRegionAverageColor } from './wallpaperSampler.js';
 import {
     PROMPT_BLUR_RADIUS,
     PROMPT_BLUR_BRIGHTNESS,
-    CANCEL_BUTTON_BLUR_RADIUS,
-    CANCEL_BUTTON_BLUR_BRIGHTNESS,
     CANCEL_BUTTON_HOVER_OVERLAY_ALPHA,
     CANCEL_BUTTON_ACTIVE_OVERLAY_ALPHA,
     CANCEL_BUTTON_WIDTH,
@@ -94,10 +93,13 @@ export async function getWallpaperAlpha(params) {
 
     await initCache();
 
-    const { targetUri, targetFilePath } = await resolveWallpaperSource(uri);
+    const { targetUri, targetFilePath, transitionInfo } = await resolveWallpaperSource(uri);
     const { mtime, size } = await getFileMtimeAndSize(targetFilePath);
 
-    const cacheKey = `${targetUri}_${mtime}_${size}_${isColor}_${primaryColor}_${secondaryColor}_${shadingType}_${textLuminance}`;
+    const progressKey = transitionInfo?.isTransition
+        ? `_prog${(Math.round(transitionInfo.progress * 100) / 100).toFixed(2)}`
+        : '';
+    const cacheKey = `${targetUri}_${mtime}_${size}_${isColor}_${primaryColor}_${secondaryColor}_${shadingType}_${textLuminance}${progressKey}`;
     if (hasCache(cacheKey))
         return getCache(cacheKey);
 
@@ -124,7 +126,16 @@ export async function getWallpaperAlpha(params) {
         }
     } else if (targetFilePath) {
         try {
-            const pixbuf = await loadScaledWallpaperPixbuf(targetFilePath, 256, 256, true);
+            let pixbuf;
+            if (transitionInfo?.isTransition && transitionInfo.from && transitionInfo.to) {
+                const [pbFrom, pbTo] = await Promise.all([
+                    loadScaledWallpaperPixbuf(transitionInfo.from, 256, 256, true),
+                    loadScaledWallpaperPixbuf(transitionInfo.to, 256, 256, true),
+                ]);
+                pixbuf = blendPixbufs(pbFrom, pbTo, transitionInfo.progress);
+            } else {
+                pixbuf = await loadScaledWallpaperPixbuf(targetFilePath, 256, 256, true);
+            }
 
             const pbWidth = pixbuf.get_width();
             const pbHeight = pixbuf.get_height();
@@ -278,7 +289,7 @@ export async function getWallpaperPromptColor(params) {
 
     await initCache();
 
-    const { targetUri, targetFilePath } = await resolveWallpaperSource(uri);
+    const { targetUri, targetFilePath, transitionInfo } = await resolveWallpaperSource(uri);
     const bgSettings = getBgSettings();
     const pictureOptions = bgSettings ? bgSettings.get_string('picture-options') : 'zoom';
 
@@ -426,7 +437,10 @@ export async function getWallpaperPromptColor(params) {
     const avatarBoundsKey = `${normAvatarX1.toFixed(4)}_${normAvatarX2.toFixed(4)}_${normAvatarY1.toFixed(4)}_${normAvatarY2.toFixed(4)}`;
     const a11yBoundsKey = `${normA11yX1.toFixed(4)}_${normA11yX2.toFixed(4)}_${normA11yY1.toFixed(4)}_${normA11yY2.toFixed(4)}`;
     const sessionBoundsKey = `${normSessionX1.toFixed(4)}_${normSessionX2.toFixed(4)}_${normSessionY1.toFixed(4)}_${normSessionY2.toFixed(4)}`;
-    const cacheKey = `prompt_grad_${targetUri}_${mtime}_${size}_${isColor}_${primaryColor}_${secondaryColor}_${shadingType}_${pictureOptions}_${monitorWidth}x${monitorHeight}_${boundsKey}_cb${cancelBoundsKey}_av${avatarBoundsKey}_a11y${a11yBoundsKey}_sess${sessionBoundsKey}_b${PROMPT_BLUR_RADIUS}_pbr${PROMPT_BLUR_BRIGHTNESS}_cr${CANCEL_BUTTON_BLUR_RADIUS}_cbr${CANCEL_BUTTON_BLUR_BRIGHTNESS}_chov${CANCEL_BUTTON_HOVER_OVERLAY_ALPHA}_cact${CANCEL_BUTTON_ACTIVE_OVERLAY_ALPHA}_cover_vis${PROMPT_VISUAL_ALGORITHM_VERSION}_vm${vibrancyMode}`;
+    const progressKey = transitionInfo?.isTransition
+        ? `_prog${(Math.round(transitionInfo.progress * 100) / 100).toFixed(2)}`
+        : '';
+    const cacheKey = `prompt_grad_${targetUri}_${mtime}_${size}_${isColor}_${primaryColor}_${secondaryColor}_${shadingType}_${pictureOptions}_${monitorWidth}x${monitorHeight}_${boundsKey}_cb${cancelBoundsKey}_av${avatarBoundsKey}_a11y${a11yBoundsKey}_sess${sessionBoundsKey}_b${PROMPT_BLUR_RADIUS}_pbr${PROMPT_BLUR_BRIGHTNESS}_chov${CANCEL_BUTTON_HOVER_OVERLAY_ALPHA}_cact${CANCEL_BUTTON_ACTIVE_OVERLAY_ALPHA}_cover_vis${PROMPT_VISUAL_ALGORITHM_VERSION}_vm${vibrancyMode}${progressKey}`;
     if (hasCache(cacheKey)) {
         const cached = getCache(cacheKey);
         if (cached && cached.start && cached.end && cached.visualState?.overlay) {
@@ -437,12 +451,10 @@ export async function getWallpaperPromptColor(params) {
             if (vibrancyMode === 'tonal' || vibrancyMode === 'less') {
                 if (cached.r != null && hasAvatar && hasA11y && hasSession && hasCancel)
                     return cached;
+            } else {
                 const hasPromptImg = cached.imagePath && Gio.File.new_for_path(cached.imagePath).query_exists(null);
-                const hasCancelImg = cached.cancelImagePath && Gio.File.new_for_path(cached.cancelImagePath).query_exists(null);
-                if (hasPromptImg && hasCancelImg &&
-                    hasAvatar && hasA11y && hasSession && hasCancel) {
+                if (hasPromptImg && hasAvatar && hasA11y && hasSession && hasCancel)
                     return cached;
-                }
             }
         }
     }
@@ -457,7 +469,6 @@ export async function getWallpaperPromptColor(params) {
     let sampledSessionColor = null;
     let direction = 'vertical';
     let imagePath = null;
-    let cancelImagePath = null;
     let shadowAlpha = undefined;
 
     if (isColor) {
@@ -562,7 +573,7 @@ export async function getWallpaperPromptColor(params) {
         // sampled spatial region.
         sampledCancelColor = applyPromptVisualState(
             rawCancel,
-            resolvePromptVisualState(rawCancel, CUPERTINO_PROMPT_WHITE_BLEND_ALPHA),
+            promptVisualState,
             { preblend: true }
         );
         sampledA11yColor = applyPromptVisualState(
@@ -598,7 +609,16 @@ export async function getWallpaperPromptColor(params) {
                 }
             }
 
-            const pixbuf = await loadScaledWallpaperPixbuf(targetFilePath, targetW, targetH, false);
+            let pixbuf;
+            if (transitionInfo?.isTransition && transitionInfo.from && transitionInfo.to) {
+                const [pbFrom, pbTo] = await Promise.all([
+                    loadScaledWallpaperPixbuf(transitionInfo.from, targetW, targetH, false),
+                    loadScaledWallpaperPixbuf(transitionInfo.to, targetW, targetH, false),
+                ]);
+                pixbuf = blendPixbufs(pbFrom, pbTo, transitionInfo.progress);
+            } else {
+                pixbuf = await loadScaledWallpaperPixbuf(targetFilePath, targetW, targetH, false);
+            }
 
             const pbWidth = pixbuf.get_width();
             const pbHeight = pixbuf.get_height();
@@ -662,7 +682,7 @@ export async function getWallpaperPromptColor(params) {
                 const rawCancel = sampleRegionAverageColor(pixbuf, cancelMappedBounds) || sampled || { r: 40, g: 40, b: 40 };
                 sampledCancelColor = applyPromptVisualState(
                     rawCancel,
-                    resolvePromptVisualState(rawCancel, CUPERTINO_PROMPT_WHITE_BLEND_ALPHA),
+                    promptVisualState,
                     { preblend: true }
                 );
             } else {
@@ -689,7 +709,7 @@ export async function getWallpaperPromptColor(params) {
                     }
                 }
 
-                // Sample dedicated slice for cancel button
+                // Sample dedicated color for cancel button
                 const cxStart = Math.max(0, Math.min(pbWidth - 1, Math.round(visibleX + visibleW * normCancelX1)));
                 const cxEnd = Math.max(1, Math.min(pbWidth, Math.round(visibleX + visibleW * normCancelX2)));
                 const cyStart = Math.max(0, Math.min(pbHeight - 1, Math.round(visibleY + visibleH * normCancelY1)));
@@ -703,31 +723,7 @@ export async function getWallpaperPromptColor(params) {
                 };
 
                 const rawCancelColor = sampleRegionAverageColor(pixbuf, cancelMappedBounds) || sampledPrimary || { r: 40, g: 40, b: 40 };
-                const cancelVisualState = resolvePromptVisualState(rawCancelColor, CUPERTINO_PROMPT_WHITE_BLEND_ALPHA);
-                sampledCancelColor = applyPromptVisualState(rawCancelColor, cancelVisualState, { preblend: true });
-
-                const cancelSliceResult = createBlurredPromptSlice(
-                    pixbuf,
-                    cancelMappedBounds,
-                    CANCEL_BUTTON_WIDTH,
-                    CANCEL_BUTTON_HEIGHT,
-                    CANCEL_BUTTON_BLUR_RADIUS,
-                    CANCEL_BUTTON_BLUR_BRIGHTNESS,
-                    0.0,
-                    CUPERTINO_PROMPT_WHITE_BLEND_ALPHA,
-                    cancelVisualState
-                );
-                if (cancelSliceResult?.pixbuf) {
-                    const cancelFilePath = `/var/tmp/wack-cancel-blur-${userName}-${hash}.png`;
-                    try {
-                        cancelSliceResult.pixbuf.savev(cancelFilePath, 'png', [], []);
-                        const cFile = Gio.File.new_for_path(cancelFilePath);
-                        cFile.set_attribute_uint32('unix::mode', 0o644, Gio.FileQueryInfoFlags.NONE, null);
-                        cancelImagePath = cancelFilePath;
-                    } catch (saveErr) {
-                        _logError(`[WACK/AlphaManager] Failed to save cancel slice: ${saveErr}`);
-                    }
-                }
+                sampledCancelColor = applyPromptVisualState(rawCancelColor, promptVisualState, { preblend: true });
 
                 // Clean up older slice PNGs for this user — keep only the current hash
                 try {
@@ -739,18 +735,11 @@ export async function getWallpaperPromptColor(params) {
                         while ((fileInfo = enumerator.next_file(null)) !== null) {
                             const fileName = fileInfo.get_name();
                             const currentSuffix = `-${hash}.png`;
-                            if (fileName.startsWith(`wack-a11y-blur-`) || fileName.startsWith(`wack-session-blur-`)) {
+                            if (fileName.startsWith(`wack-a11y-blur-`) || fileName.startsWith(`wack-session-blur-`) || fileName.startsWith(`wack-cancel-blur-`)) {
                                 toDelete.push(`/var/tmp/${fileName}`);
                                 continue;
                             }
-                            const isUserSlice = (
-                                fileName.startsWith(`wack-prompt-blur-${userName}-`) ||
-                                fileName.startsWith(`wack-cancel-blur-active-${userName}-`) ||
-                                fileName.startsWith(`wack-cancel-blur-hover-${userName}-`) ||
-                                (fileName.startsWith(`wack-cancel-blur-${userName}-`) &&
-                                    !fileName.startsWith(`wack-cancel-blur-hover-${userName}-`) &&
-                                    !fileName.startsWith(`wack-cancel-blur-active-${userName}-`))
-                            );
+                            const isUserSlice = fileName.startsWith(`wack-prompt-blur-${userName}-`);
                             if (isUserSlice && !fileName.endsWith(currentSuffix)) {
                                 toDelete.push(`/var/tmp/${fileName}`);
                             }
@@ -844,7 +833,7 @@ export async function getWallpaperPromptColor(params) {
         const raw = sampledPrimary || { r: 40, g: 40, b: 40 };
         sampledCancelColor = applyPromptVisualState(
             raw,
-            resolvePromptVisualState(raw, CUPERTINO_PROMPT_WHITE_BLEND_ALPHA),
+            promptVisualState ?? resolvePromptVisualState(raw, CUPERTINO_PROMPT_WHITE_BLEND_ALPHA),
             { preblend: true }
         );
     }
@@ -890,7 +879,6 @@ export async function getWallpaperPromptColor(params) {
         direction: direction,
         vibrancyMode: vibrancyMode,
         imagePath: imagePath,
-        cancelImagePath: cancelImagePath,
         cancelColor: sampledCancelColor,
         avatarColor: sampledAvatarColor,
         a11yColor: sampledA11yColor,
