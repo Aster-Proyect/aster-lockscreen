@@ -619,13 +619,14 @@ export default class WackLockscreenClockExtension extends Extension {
             }
 
             const currentAuthPrompt = this._dialog?._authPrompt ?? this._dialog?._promptBox?._authPrompt;
+            const isCupertino = this._lockscreenMode === 'cupertino';
             if (promptColor) {
                 const entry = this._findPromptEntry(currentAuthPrompt);
                 if (entry)
-                    this._applyPromptEntryBackground(entry, promptColor);
+                    this._applyPromptEntryBackground(entry, isCupertino ? promptColor : null);
                 if (currentAuthPrompt?.cancelButton)
-                    this._applyCancelButtonBackground(currentAuthPrompt.cancelButton, promptColor);
-                if (this._promptStyling)
+                    this._applyCancelButtonBackground(currentAuthPrompt.cancelButton, isCupertino ? promptColor : null);
+                if (this._promptStyling && isCupertino)
                     this._promptStyling.updatePromptMessageStyle(promptColor, alpha);
             }
         } catch (e) {

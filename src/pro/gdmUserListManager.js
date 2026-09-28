@@ -85,8 +85,9 @@ export class GdmUserListManager {
     teardownUserListWidths(dialog = null) {
         const targetDialog = dialog || this._gdm._dialog;
         const userList = targetDialog?._userList;
-        if (this.userListItemAddedId && userList) {
-            userList.disconnect(this.userListItemAddedId);
+        if (this.userListItemAddedId) {
+            if (userList)
+                userList.disconnect(this.userListItemAddedId);
             this.userListItemAddedId = null;
         }
         if (userList) {

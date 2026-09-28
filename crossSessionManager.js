@@ -3,10 +3,7 @@ import GLib from 'gi://GLib';
 import GdkPixbuf from 'gi://GdkPixbuf';
 import { resolveSlideshowXmlContent } from './src/main/constants.js';
 import { blendPixbufs } from './src/main/wallpaperUtils.js';
-
-function _log(msg) {
-    console.debug(msg);
-}
+import { _log, _logError } from './src/main/mainUtils.js';
 
 
 export class CrossSessionManager {
@@ -444,7 +441,7 @@ export class CrossSessionManager {
             );
             metaFile.set_attribute_uint32('unix::mode', 0o644, Gio.FileQueryInfoFlags.NONE, null);
         } catch (e) {
-            console.error('[WACK/CrossSession] Failed to save wallpaper: ' + e);
+            _logError('[WACK/CrossSession] Failed to save wallpaper: ' + e);
         }
     }
 

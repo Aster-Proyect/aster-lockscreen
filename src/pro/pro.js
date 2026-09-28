@@ -352,7 +352,7 @@ export class GdmManager {
         dialog._showPrompt = (...args) => {
             if (this._verificationSucceeded || this._legacyPromptAnimationState === 'success') {
                 if (this._selectedPromptMode === 'wack')
-                    this._yeetLegacyPromptTransform();
+                    this._resetLegacyPromptTransform();
                 return;
             }
 
@@ -409,7 +409,7 @@ export class GdmManager {
             this._skipLegacyPromptEntryAnimation = true;
             this._stopCursorBlink();
             if (this._selectedPromptMode === 'wack')
-                this._yeetLegacyPromptTransform();
+                this._resetLegacyPromptTransform();
         };
 
         const fadeOutOverlayActors = (duration = 250) => {
@@ -496,15 +496,10 @@ export class GdmManager {
             this._origBeginVerificationForItem = dialog._beginVerificationForItem.bind(dialog);
             dialog._beginVerificationForItem = (...args) => {
                 this._isNotListed = false;
-                // Pre-warm the colour cache for this user immediately so the
-                // vibrancy update is already resolved when the crossfade starts.
                 const item = args[0];
-                const userName = item?.user?.get_user_name() ?? item?.userName ?? null;
                 const userLang = item?.user?.get_language() || null;
                 if (userLang && this._clockManager)
                     this._clockManager.setUserLocale(userLang);
-                if (userName)
-                    this._prewarmUserWallpaperColor(userName).catch(() => {});
                 return this._origBeginVerificationForItem(...args);
             };
         }
@@ -627,7 +622,6 @@ export class GdmManager {
         this._promptResetAnimating = false;
         this._legacyPromptAnimationState = 'idle';
         this._skipLegacyPromptEntryAnimation = false;
-        if (!this._dialog) return;
         const dialog = this._dialog;
 
         this._wallpaperManager.teardown();
@@ -831,13 +825,45 @@ export class GdmManager {
             if (wellChanged) this._lastWellH = wellH;
             if (yCenterChanged) this._lastYCenterFraction = yCenterFraction;
             if (boundsChanged) this._lastPromptBounds = promptBounds;
-            // Don't re-sample during the initial animation-in: the entry's transformed
-            // position is still changing as translation_y settles, producing stale bounds
-            // that may map to a brighter wallpaper region and overwrite the correct
-            // inverse/dark overlay already applied by onUserSelected().
-            if (this._legacyPromptAnimationState !== 'selection') {
-                this._updateCupertinoPromptBackground().catch(e => {
-                    _logError('[WACK/GdmManager] Failed to update prompt background in allocation: ' + e);
+
+            if (this._wallpaperManager?.themeStore && promptBounds) {
+                const monitor = Main.layoutManager?.primaryMonitor;
+                const monitorWidth = monitor ? monitor.width : 1920;
+                const monitorHeight = monitor ? monitor.height : 1080;
+                const layoutKey = `${monitorWidth}x${monitorHeight}@${wellH}:${yCenterFraction !== null ? yCenterFraction.toFixed(3) : '0'}`;
+
+                const a11yButton = this._promptStyling._findA11yButton();
+                const sessionButton = this._promptStyling._findSessionButton();
+                const cancelButton = authPrompt.cancelButton ?? null;
+                const avatarActor = authPrompt._userWell ?? null;
+
+                const getBounds = (actor) => {
+                    if (!actor || !actor.get_transformed_position) return null;
+                    const [ax, ay] = actor.get_transformed_position();
+                    const aw = actor.get_width() || 0;
+                    const ah = actor.get_height() || 0;
+                    if (aw <= 0 || ah <= 0 || monitorWidth <= 0 || monitorHeight <= 0) return null;
+                    const mx = monitor ? monitor.x : 0;
+                    const my = monitor ? monitor.y : 0;
+                    return {
+                        x1: Math.max(0, Math.min(1, (ax - mx) / monitorWidth)),
+                        x2: Math.max(0, Math.min(1, (ax + aw - mx) / monitorWidth)),
+                        y1: Math.max(0, Math.min(1, (ay - my) / monitorHeight)),
+                        y2: Math.max(0, Math.min(1, (ay + ah - my) / monitorHeight)),
+                    };
+                };
+
+                this._wallpaperManager.themeStore.setLayout({
+                    key: layoutKey,
+                    wellH,
+                    yCenterFraction,
+                    bounds: {
+                        prompt: promptBounds,
+                        cancel: getBounds(cancelButton),
+                        avatar: getBounds(avatarActor),
+                        a11y: getBounds(a11yButton),
+                        session: getBounds(sessionButton),
+                    },
                 });
             }
         }
@@ -850,7 +876,6 @@ export class GdmManager {
 
     _setPromptBackgroundBlur(active, animate = true) { this._wallpaperManager.setPromptBackgroundBlur(active, animate); }
     _applyWallpaper(userName = null) { this._wallpaperManager.applyWallpaper(userName); }
-    _prewarmUserWallpaperColor(userName) { return this._wallpaperManager.prewarmUserWallpaperColor(userName); }
 
     _positionClock(dialogBox = null) { this._clockManager.positionClock(dialogBox); }
     _positionUserList(dialogBox = null) { this._userListManager.positionUserList(dialogBox); }
@@ -860,14 +885,12 @@ export class GdmManager {
     _findPromptEntry(actor) { return this._promptStyling.findPromptEntry(actor); }
     _clearCupertinoPromptBackground() { this._promptStyling.clearCupertinoPromptBackground(); }
     _clearBottomButtonsBackground() { this._promptStyling.clearBottomButtonsBackground(); }
-    _updateCupertinoPromptBackground(metadata = null) { return this._promptStyling.updateCupertinoPromptBackground(metadata); }
-    _updateBottomButtonsBackground(metadata = null) { return this._promptStyling.updateBottomButtonsBackground(metadata); }
 
     _setupGdmAvatarOverride() { this._avatarManager.setup(this._dialog); }
     _teardownGdmAvatarOverride() { this._avatarManager.teardown(); }
 
     _setLegacyPromptChrome(visible, animate = true) { this._animController.setLegacyPromptChrome(visible, animate); }
-    _yeetLegacyPromptTransform() { this._animController.yeetLegacyPromptTransform(); }
+    _resetLegacyPromptTransform() { this._animController.resetLegacyPromptTransform(); }
     _animateSessionMenuButtonIn() { this._animController.animateSessionMenuButtonIn(); }
     _animateLegacyPromptOut(onComplete) { this._animController.animateLegacyPromptOut(onComplete); }
     _animateLegacyPromptSuccessFadeOut(onComplete) { this._animController.animateLegacyPromptSuccessFadeOut(onComplete); }

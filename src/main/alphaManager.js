@@ -888,7 +888,6 @@ export async function getWallpaperPromptColor(params) {
         visualState: promptVisualState,
     };
 
-    console.debug(`[WACK/AlphaManager] cache MISS for key: ${cacheKey}, computed: ${JSON.stringify(result)}`);
     setCache(cacheKey, result);
     saveCache();
     return result;

@@ -62,6 +62,47 @@ function _validateCacheEntry(key, value) {
     return false;
 }
 
+export function initCacheSync() {
+    if (_state === 'READY')
+        return;
+
+    try {
+        const file = Gio.File.new_for_path(CACHE_FILE);
+        if (file.query_exists(null)) {
+            const [success, contents] = file.load_contents(null);
+            if (success && contents) {
+                const decoded = new TextDecoder().decode(contents);
+                const data = JSON.parse(decoded);
+
+                if (
+                    data &&
+                    typeof data === 'object' &&
+                    !Array.isArray(data) &&
+                    data.__schema__ === CACHE_SCHEMA_VERSION &&
+                    data.__visual_version__ === PROMPT_VISUAL_ALGORITHM_VERSION &&
+                    data.entries &&
+                    typeof data.entries === 'object' &&
+                    !Array.isArray(data.entries)
+                ) {
+                    for (const [k, v] of Object.entries(data.entries)) {
+                        if (!_cache.has(k) && _validateCacheEntry(k, v)) {
+                            if (_cache.size >= MAX_CACHE_ENTRIES) {
+                                const oldest = _cache.keys().next().value;
+                                if (oldest !== undefined)
+                                    _cache.delete(oldest);
+                            }
+                            _cache.set(k, v);
+                        }
+                    }
+                }
+            }
+        }
+    } catch (_) {
+    } finally {
+        _state = 'READY';
+    }
+}
+
 export function initCache() {
     if (_state === 'READY')
         return Promise.resolve();

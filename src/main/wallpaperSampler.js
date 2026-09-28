@@ -1,5 +1,6 @@
 import GdkPixbuf from 'gi://GdkPixbuf';
 import GLib from 'gi://GLib';
+import { _logError } from './mainUtils.js';
 import {
     resolvePromptVisualState,
     getPromptDarkenedHueColor,
@@ -313,7 +314,7 @@ export function createBlurredPromptSlice(
             visualState: resolvedState,
         };
     } catch (e) {
-        console.error(`[WACK/WallpaperSampler] createBlurredPromptSlice error: ${e}`);
+        _logError(`[WACK/WallpaperSampler] createBlurredPromptSlice error: ${e}`);
         return null;
     }
 }

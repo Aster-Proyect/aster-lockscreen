@@ -363,5 +363,11 @@ export class GdmClockManager {
             this.clock.setLocale(locale);
         }
     }
+
+    setWallpaperAlpha(alpha, promptColor = null) {
+        if (this.clock) {
+            this.clock.setWallpaperAlpha(alpha, promptColor);
+        }
+    }
 }
 

@@ -130,8 +130,8 @@ export class GdmAvatarManager {
         }
 
         const label = item?._userWidget?._label;
-        if (label && this._lastAvatarColor) {
-            label.set_style(getUserLabelStyle(this._lastAvatarColor));
+        if (label) {
+            label.set_style(this._lastAvatarColor ? getUserLabelStyle(this._lastAvatarColor) : null);
         }
 
         this._applyStyleToUserListItemAvatar(avatar);
@@ -153,21 +153,23 @@ export class GdmAvatarManager {
         if (user && !user.is_loaded)
             return;
 
-        if (this._lastAvatarColor) {
-            const color = this._lastAvatarColor;
-            const bgRgba = color.rgba || `rgba(${color.r}, ${color.g}, ${color.b}, 1.0)`;
-            const buttonStyle = `background-color: ${bgRgba} !important; border-radius: 999px !important;`;
-            if (avatar.get_style() !== buttonStyle) {
-                avatar.set_style(buttonStyle);
+        const color = this._lastAvatarColor;
+        const bgRgba = color ? (color.rgba || `rgba(${color.r}, ${color.g}, ${color.b}, 1.0)`) : null;
+        const buttonStyle = bgRgba ? `background-color: ${bgRgba} !important; border-radius: 999px !important;` : null;
+
+        if (avatar.get_style() !== buttonStyle) {
+            avatar.set_style(buttonStyle);
+            if (buttonStyle)
                 avatar._wackHasVibrancy = true;
-            }
-            avatar.clip_to_allocation = true;
-            const child = avatar.get_child();
-            if (child) {
-                const iconStyle = 'background-color: transparent !important; border-radius: 999px !important;';
-                if (child.get_style() !== iconStyle)
-                    child.set_style(iconStyle);
-            }
+            else
+                delete avatar._wackHasVibrancy;
+        }
+        avatar.clip_to_allocation = true;
+        const child = avatar.get_child();
+        if (child) {
+            const iconStyle = buttonStyle ? 'background-color: transparent !important; border-radius: 999px !important;' : null;
+            if (child.get_style() !== iconStyle)
+                child.set_style(iconStyle);
         }
     }
 
@@ -186,15 +188,15 @@ export class GdmAvatarManager {
     }
 
     updateAvatarVibrancy(avatarColor) {
-        if (avatarColor)
+        if (avatarColor !== undefined)
             this._lastAvatarColor = avatarColor;
-        const color = this._lastAvatarColor;
-        if (!color || this._updatingVibrancy) return;
+        if (this._updatingVibrancy) return;
 
+        const color = this._lastAvatarColor;
         this._updatingVibrancy = true;
         try {
-            const bgRgba = color.rgba || `rgba(${color.r}, ${color.g}, ${color.b}, 1.0)`;
-            const buttonStyle = `background-color: ${bgRgba} !important; border-radius: 999px !important;`;
+            const bgRgba = color ? (color.rgba || `rgba(${color.r}, ${color.g}, ${color.b}, 1.0)`) : null;
+            const buttonStyle = bgRgba ? `background-color: ${bgRgba} !important; border-radius: 999px !important;` : null;
 
             const applyToWell = (uw) => {
                 if (!uw) return;
@@ -213,7 +215,10 @@ export class GdmAvatarManager {
                     // Apply to the avatar widget directly for placeholder/symbolic avatars
                     if (avatar && avatar.get_style() !== buttonStyle) {
                         avatar.set_style(buttonStyle);
-                        avatar._wackHasVibrancy = true;
+                        if (buttonStyle)
+                            avatar._wackHasVibrancy = true;
+                        else
+                            delete avatar._wackHasVibrancy;
                     }
                     if (avatar)
                         avatar.clip_to_allocation = true;
@@ -221,7 +226,7 @@ export class GdmAvatarManager {
                         avatarButton.clip_to_allocation = true;
                     const child = avatar?.get_child();
                     if (child) {
-                        const iconStyle = 'background-color: transparent !important; border-radius: 999px !important;';
+                        const iconStyle = buttonStyle ? 'background-color: transparent !important; border-radius: 999px !important;' : null;
                         if (child.get_style() !== iconStyle)
                             child.set_style(iconStyle);
                     }
@@ -231,12 +236,12 @@ export class GdmAvatarManager {
             const authPrompt = this._dialog?._authPrompt || this._gdm._dialog?._authPrompt;
             const authPromptWell = authPrompt?._userWell?.get_child();
             applyToWell(authPromptWell);
-            if (authPromptWell?._label && this._lastAvatarColor) {
-                authPromptWell._label.set_style(getUserLabelStyle(this._lastAvatarColor));
+            if (authPromptWell?._label) {
+                authPromptWell._label.set_style(color ? getUserLabelStyle(color) : null);
             }
 
             if (this._gdm._cupertinoRestPrompt?.updateVisuals) {
-                this._gdm._cupertinoRestPrompt.updateVisuals(this._lastAvatarColor);
+                this._gdm._cupertinoRestPrompt.updateVisuals(color);
             } else {
                 applyToWell(this._gdm._cupertinoRestPrompt?._userWell?.get_child());
             }

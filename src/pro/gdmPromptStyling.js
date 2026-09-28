@@ -1,27 +1,12 @@
 import Clutter from 'gi://Clutter';
 import Gio from 'gi://Gio';
 import GLib from 'gi://GLib';
-import * as Main from 'resource:///org/gnome/shell/ui/main.js';
-import { getWallpaperPromptColor } from '../main/alphaManager.js';
-import { getChromeAlpha, getPromptMessageStyle, getHintTextStyle, getPromptDimVeilAlpha } from '../main/colorUtils.js';
-import {
-    A11Y_BUTTON_WIDTH,
-    A11Y_BUTTON_HEIGHT,
-    A11Y_BUTTON_X_OFFSET,
-    A11Y_BUTTON_Y_OFFSET,
-    SESSION_BUTTON_WIDTH,
-    SESSION_BUTTON_HEIGHT,
-    SESSION_BUTTON_X_OFFSET,
-    SESSION_BUTTON_Y_OFFSET,
-} from '../main/constants.js';
-import { _logError, resolveGdmAccessibleUri } from './gdmUtils.js';
+import { getChromeAlpha, getHintTextStyle, getPromptDimVeilAlpha } from '../main/colorUtils.js';
 
 export class GdmPromptStyling {
     constructor(gdmManager) {
         this._gdm = gdmManager;
         this.cursorBlinkTimeoutId = 0;
-        this.promptColorRequestId = 0;
-        this.bottomButtonsColorRequestId = 0;
         this._lastA11yColor = null;
         this._lastSessionColor = null;
         this._lastPromptColor = null;
@@ -112,6 +97,11 @@ export class GdmPromptStyling {
         if (!entry)
             return;
 
+        const authPrompt = this._gdm._dialog?._authPrompt;
+        const isCupertino = authPrompt && authPrompt.has_style_class_name('wack-cupertino-prompt');
+        if (color && !isCupertino)
+            color = null;
+
         if (!color) {
             entry.disconnectObject(this);
             if (entry.clutter_text)
@@ -119,7 +109,6 @@ export class GdmPromptStyling {
             if (global.stage)
                 global.stage.disconnectObject(entry);
 
-            const authPrompt = this._gdm._dialog?._authPrompt;
             if (authPrompt)
                 authPrompt.disconnectObject(this);
 
@@ -359,6 +348,13 @@ export class GdmPromptStyling {
         if (!button)
             return;
 
+        if (buttonType === 'cancel' && color) {
+            const authPrompt = this._gdm._dialog?._authPrompt;
+            const isCupertino = authPrompt && authPrompt.has_style_class_name('wack-cupertino-prompt');
+            if (!isCupertino)
+                color = null;
+        }
+
         if (!color) {
             button.disconnectObject(this);
             const menu = this._findMenuForButton(button);
@@ -543,8 +539,52 @@ export class GdmPromptStyling {
         button.set_style(`${button._wackOriginalStyle}${bgStyle}`);
     }
 
+    _findA11yButton() {
+        const dialog = this._gdm._dialog;
+        if (!dialog) return null;
+        if (dialog._a11yMenuButton)
+            return dialog._a11yMenuButton;
+        if (dialog._bottomButtonGroup && dialog._bottomButtonGroup._a11yMenuButton)
+            return dialog._bottomButtonGroup._a11yMenuButton;
+        if (dialog._bottomButtonGroup && dialog._bottomButtonGroup.get_children) {
+            const match = dialog._bottomButtonGroup.get_children().find(c => c.has_style_class_name && c.has_style_class_name('a11y-button'));
+            if (match) return match;
+        }
+        return null;
+    }
+
+    _findSessionButton() {
+        const dialog = this._gdm._dialog;
+        if (!dialog) return null;
+        if (dialog._authMenuButton)
+            return dialog._authMenuButton;
+        if (dialog._sessionMenuButton) {
+            if (dialog._sessionMenuButton._button)
+                return dialog._sessionMenuButton._button;
+            if (dialog._sessionMenuButton.get_child)
+                return dialog._sessionMenuButton.get_child();
+            return dialog._sessionMenuButton;
+        }
+        if (dialog._bottomButtonGroup) {
+            if (dialog._bottomButtonGroup._authMenuButton)
+                return dialog._bottomButtonGroup._authMenuButton;
+            if (dialog._bottomButtonGroup._sessionMenuButton) {
+                if (dialog._bottomButtonGroup._sessionMenuButton._button)
+                    return dialog._bottomButtonGroup._sessionMenuButton._button;
+                return dialog._bottomButtonGroup._sessionMenuButton;
+            }
+            if (dialog._bottomButtonGroup.get_children) {
+                const match = dialog._bottomButtonGroup.get_children().find(c => c.has_style_class_name && (c.has_style_class_name('login-dialog-auth-menu-button') || c.has_style_class_name('login-dialog-session-list-button')));
+                if (match) return match;
+            }
+        }
+        return null;
+    }
+
     applyCancelButtonBackground(button, color) {
-        this._setupChromeButton(button, color, 'cancel');
+        const authPrompt = this._gdm._dialog?._authPrompt;
+        const isCupertino = authPrompt && authPrompt.has_style_class_name('wack-cupertino-prompt');
+        this._setupChromeButton(button, isCupertino ? color : null, 'cancel');
     }
 
     updateCancelButtonStyle(button) {
@@ -559,513 +599,94 @@ export class GdmPromptStyling {
         this._setupChromeButton(button, color, 'session');
     }
 
+    applyTheme(theme) {
+        if (!theme)
+            return;
+
+        const authPrompt = this._gdm._dialog ? this._gdm._dialog._authPrompt : null;
+        const entry = authPrompt ? this.findPromptEntry(authPrompt) : null;
+        const cancelButton = authPrompt ? (authPrompt.cancelButton || authPrompt._cancelButton) : null;
+        const a11yButton = this._findA11yButton();
+        const sessionButton = this._findSessionButton();
+
+        const isSlideMismatch = theme.slide !== null && (
+            !theme.meta?.resolved_slide_path ||
+            (theme.slide.filePath !== theme.meta.resolved_slide_path &&
+             !theme.meta.resolved_slide_path.endsWith(theme.slide.filePath) &&
+             !theme.slide.filePath.endsWith(theme.meta.resolved_slide_path))
+        );
+
+        const promptColor = theme.palette ? theme.palette.value : (
+            (!isSlideMismatch && theme.meta?.promptColor) ? theme.meta.promptColor : null
+        );
+
+        if (promptColor) {
+            this._lastPromptColor = promptColor;
+            this._lastA11yColor = promptColor.a11yColor ?? null;
+            this._lastSessionColor = promptColor.sessionColor ?? null;
+        } else {
+            this._lastPromptColor = null;
+            this._lastA11yColor = null;
+            this._lastSessionColor = null;
+        }
+
+        const a11yColorToApply = (promptColor && promptColor.a11yColor) ? promptColor.a11yColor : this._lastA11yColor;
+        const sessionColorToApply = (promptColor && promptColor.sessionColor) ? promptColor.sessionColor : this._lastSessionColor;
+
+        const isCupertinoPrompt = authPrompt && authPrompt.has_style_class_name('wack-cupertino-prompt');
+
+        if (entry) {
+            this.applyPromptEntryBackground(entry, isCupertinoPrompt ? promptColor : null);
+        }
+        if (cancelButton) {
+            this.applyCancelButtonBackground(cancelButton, isCupertinoPrompt ? promptColor : null);
+        }
+
+        const avatarColor = (promptColor && promptColor.avatarColor) ? promptColor.avatarColor : (promptColor && promptColor.r != null ? {
+            r: promptColor.r,
+            g: promptColor.g,
+            b: promptColor.b,
+            rgba: promptColor.rgba || `rgba(${promptColor.r}, ${promptColor.g}, ${promptColor.b}, 1.0)`,
+        } : null);
+
+        if (this._gdm._avatarManager) {
+            this._gdm._avatarManager.updateAvatarVibrancy(avatarColor);
+        }
+        if (a11yButton) {
+            this.applyA11yButtonBackground(a11yButton, a11yColorToApply);
+        }
+        if (sessionButton) {
+            this.applySessionButtonBackground(sessionButton, sessionColorToApply);
+        }
+
+        if (theme.clockAlpha != null) {
+            this.updatePromptMessageStyle(null, theme.clockAlpha);
+        }
+    }
+
     clearCupertinoPromptBackground() {
-        const authPrompt = this._gdm._dialog?._authPrompt;
+        const authPrompt = this._gdm._dialog ? this._gdm._dialog._authPrompt : null;
         const entry = this.findPromptEntry(authPrompt);
         if (entry)
             this.applyPromptEntryBackground(entry, null);
 
-        const cancelButton = authPrompt?.cancelButton;
+        const cancelButton = authPrompt ? (authPrompt.cancelButton || authPrompt._cancelButton) : null;
         if (cancelButton)
             this.applyCancelButtonBackground(cancelButton, null);
 
-        if (authPrompt?._message)
+        if (authPrompt && authPrompt._message)
             authPrompt._message.set_style(null);
-        if (authPrompt?._capsLockWarningLabel)
+        if (authPrompt && authPrompt._capsLockWarningLabel)
             authPrompt._capsLockWarningLabel.set_style(null);
     }
 
     clearBottomButtonsBackground() {
-        const dialog = this._gdm._dialog;
-        const a11yButton = dialog?._a11yMenuButton
-            ?? dialog?._bottomButtonGroup?._a11yMenuButton
-            ?? dialog?._bottomButtonGroup?.get_children().find(c => c.has_style_class_name('a11y-button'));
+        const a11yButton = this._findA11yButton();
         if (a11yButton)
             this.applyA11yButtonBackground(a11yButton, null);
 
-        const sessionButton = dialog?._authMenuButton
-            ?? dialog?._sessionMenuButton?._button
-            ?? dialog?._sessionMenuButton?.get_child()
-            ?? dialog?._sessionMenuButton
-            ?? dialog?._bottomButtonGroup?._authMenuButton
-            ?? dialog?._bottomButtonGroup?._sessionMenuButton?._button
-            ?? dialog?._bottomButtonGroup?._sessionMenuButton
-            ?? dialog?._bottomButtonGroup?.get_children().find(c => c.has_style_class_name('login-dialog-auth-menu-button') || c.has_style_class_name('login-dialog-session-list-button'));
+        const sessionButton = this._findSessionButton();
         if (sessionButton)
             this.applySessionButtonBackground(sessionButton, null);
-    }
-
-    async updateCupertinoPromptBackground(metadata = null) {
-        const authPrompt = this._gdm._dialog?._authPrompt;
-        if (!authPrompt)
-            return;
-
-        const entry = this.findPromptEntry(authPrompt);
-        if (!entry)
-            return;
-
-        if (!authPrompt.has_style_class_name('wack-cupertino-prompt')) {
-            this.clearCupertinoPromptBackground();
-            return;
-        }
-
-        const effectiveMetadata = metadata ?? this._gdm._currentWallpaperMetadata;
-
-        let wellH = 0;
-        if (this._gdm._cupertinoRestPrompt?._userWell) {
-            const [, , , hSize] = this._gdm._cupertinoRestPrompt._userWell.get_preferred_size();
-            wellH = hSize > 0 ? hSize : 0;
-        }
-
-        let yCenterFraction = null;
-        let promptBounds = null;
-        if (entry) {
-            const [xTrans, yTrans] = entry.get_transformed_position();
-            const wTrans = entry.get_width() || 0;
-            const hTrans = entry.get_height() || 0;
-            const monitor = Main.layoutManager?.primaryMonitor;
-            const monitorX = monitor ? monitor.x : 0;
-            const monitorY = monitor ? monitor.y : 0;
-            const monitorHeight = monitor ? monitor.height : 1080;
-            const monitorWidth = monitor ? monitor.width : 1920;
-            if (yTrans > 0 && monitorHeight > 0)
-                yCenterFraction = (yTrans + hTrans / 2 - monitorY) / monitorHeight;
-            if (wTrans > 0 && hTrans > 0 && monitorWidth > 0 && monitorHeight > 0 && xTrans >= monitorX && yTrans >= monitorY) {
-                promptBounds = {
-                    x1: Math.max(0, Math.min(1, (xTrans - monitorX) / monitorWidth)),
-                    x2: Math.max(0, Math.min(1, (xTrans + wTrans - monitorX) / monitorWidth)),
-                    y1: Math.max(0, Math.min(1, (yTrans - monitorY) / monitorHeight)),
-                    y2: Math.max(0, Math.min(1, (yTrans + hTrans - monitorY) / monitorHeight)),
-                };
-            }
-        }
-
-        let cancelBounds = null;
-        const cancelButton = authPrompt?.cancelButton;
-        if (cancelButton && cancelButton.get_stage()) {
-            const [cxTrans, cyTrans] = cancelButton.get_transformed_position();
-            const cwTrans = cancelButton.get_width() || 34;
-            const chTrans = cancelButton.get_height() || 34;
-            const monitor = Main.layoutManager?.primaryMonitor;
-            const monitorX = monitor ? monitor.x : 0;
-            const monitorY = monitor ? monitor.y : 0;
-            const monitorHeight = monitor ? monitor.height : 1080;
-            const monitorWidth = monitor ? monitor.width : 1920;
-            if (cwTrans > 0 && chTrans > 0 && monitorWidth > 0 && monitorHeight > 0 && cxTrans >= monitorX && cyTrans >= monitorY) {
-                cancelBounds = {
-                    x1: Math.max(0, Math.min(1, (cxTrans - monitorX) / monitorWidth)),
-                    x2: Math.max(0, Math.min(1, (cxTrans + cwTrans - monitorX) / monitorWidth)),
-                    y1: Math.max(0, Math.min(1, (cyTrans - monitorY) / monitorHeight)),
-                    y2: Math.max(0, Math.min(1, (cyTrans + chTrans - monitorY) / monitorHeight)),
-                };
-            }
-        }
-
-        let avatarBounds = null;
-        const avatarButton = this._gdm._cupertinoRestPrompt?._userWell?.get_child()?._avatarButton
-            ?? authPrompt?._userWell?.get_child()?._avatarButton;
-        if (avatarButton && avatarButton.get_stage()) {
-            const [axTrans, ayTrans] = avatarButton.get_transformed_position();
-            const awTrans = avatarButton.get_width() || 56;
-            const ahTrans = avatarButton.get_height() || 56;
-            const monitor = Main.layoutManager?.primaryMonitor;
-            const monitorX = monitor ? monitor.x : 0;
-            const monitorY = monitor ? monitor.y : 0;
-            const monitorHeight = monitor ? monitor.height : 1080;
-            const monitorWidth = monitor ? monitor.width : 1920;
-            if (awTrans > 0 && ahTrans > 0 && monitorWidth > 0 && monitorHeight > 0 && axTrans >= monitorX && ayTrans >= monitorY) {
-                avatarBounds = {
-                    x1: Math.max(0, Math.min(1, (axTrans - monitorX) / monitorWidth)),
-                    x2: Math.max(0, Math.min(1, (axTrans + awTrans - monitorX) / monitorWidth)),
-                    y1: Math.max(0, Math.min(1, (ayTrans - monitorY) / monitorHeight)),
-                    y2: Math.max(0, Math.min(1, (ayTrans + ahTrans - monitorY) / monitorHeight)),
-                };
-            }
-        }
-
-        let a11yBounds = null;
-        const currentDialog = this._gdm._dialog;
-        const a11yButton = currentDialog?._a11yMenuButton
-            ?? currentDialog?._bottomButtonGroup?._a11yMenuButton
-            ?? currentDialog?._bottomButtonGroup?.get_children().find(c => c.has_style_class_name('a11y-button'));
-        if (a11yButton && a11yButton.get_stage()) {
-            const [axTrans, ayTrans] = a11yButton.get_transformed_position();
-            const awTrans = a11yButton.get_width() || A11Y_BUTTON_WIDTH;
-            const ahTrans = a11yButton.get_height() || A11Y_BUTTON_HEIGHT;
-            const monitor = Main.layoutManager?.primaryMonitor;
-            const monitorX = monitor ? monitor.x : 0;
-            const monitorY = monitor ? monitor.y : 0;
-            const monitorHeight = monitor ? monitor.height : 1080;
-            const monitorWidth = monitor ? monitor.width : 1920;
-            if (awTrans > 0 && ahTrans > 0 && monitorWidth > 0 && monitorHeight > 0 && axTrans >= monitorX && ayTrans >= monitorY) {
-                const effectiveX = axTrans + A11Y_BUTTON_X_OFFSET;
-                const effectiveY = ayTrans + A11Y_BUTTON_Y_OFFSET;
-                a11yBounds = {
-                    x1: Math.max(0, Math.min(1, (effectiveX - monitorX) / monitorWidth)),
-                    x2: Math.max(0, Math.min(1, (effectiveX + awTrans - monitorX) / monitorWidth)),
-                    y1: Math.max(0, Math.min(1, (effectiveY - monitorY) / monitorHeight)),
-                    y2: Math.max(0, Math.min(1, (effectiveY + ahTrans - monitorY) / monitorHeight)),
-                };
-            }
-        }
-
-        let sessionBounds = null;
-        const sessionButton = currentDialog?._authMenuButton
-            ?? currentDialog?._sessionMenuButton?._button
-            ?? currentDialog?._sessionMenuButton?.get_child()
-            ?? currentDialog?._sessionMenuButton
-            ?? currentDialog?._bottomButtonGroup?._authMenuButton
-            ?? currentDialog?._bottomButtonGroup?._sessionMenuButton?._button
-            ?? currentDialog?._bottomButtonGroup?._sessionMenuButton
-            ?? currentDialog?._bottomButtonGroup?.get_children().find(c => c.has_style_class_name('login-dialog-auth-menu-button') || c.has_style_class_name('login-dialog-session-list-button'));
-        if (sessionButton && sessionButton.get_stage()) {
-            const [sxTrans, syTrans] = sessionButton.get_transformed_position();
-            const swTrans = sessionButton.get_width() || SESSION_BUTTON_WIDTH;
-            const shTrans = sessionButton.get_height() || SESSION_BUTTON_HEIGHT;
-            const monitor = Main.layoutManager?.primaryMonitor;
-            const monitorX = monitor ? monitor.x : 0;
-            const monitorY = monitor ? monitor.y : 0;
-            const monitorHeight = monitor ? monitor.height : 1080;
-            const monitorWidth = monitor ? monitor.width : 1920;
-            if (swTrans > 0 && shTrans > 0 && monitorWidth > 0 && monitorHeight > 0 && sxTrans >= monitorX && syTrans >= monitorY) {
-                const effectiveX = sxTrans + SESSION_BUTTON_X_OFFSET;
-                const effectiveY = syTrans + SESSION_BUTTON_Y_OFFSET;
-                sessionBounds = {
-                    x1: Math.max(0, Math.min(1, (effectiveX - monitorX) / monitorWidth)),
-                    x2: Math.max(0, Math.min(1, (effectiveX + swTrans - monitorX) / monitorWidth)),
-                    y1: Math.max(0, Math.min(1, (effectiveY - monitorY) / monitorHeight)),
-                    y2: Math.max(0, Math.min(1, (effectiveY + shTrans - monitorY) / monitorHeight)),
-                };
-            }
-        }
-
-        let wallpaperParams = null;
-        if (effectiveMetadata) {
-            const promptColor = effectiveMetadata.promptColor;
-            const hasValidPromptImage = promptColor?.imagePath &&
-                Gio.File.new_for_path(promptColor.imagePath).query_exists(null);
-
-            let avatarColor = promptColor?.avatarColor;
-            if (!avatarColor && promptColor && promptColor.r != null) {
-                // Derive avatar color directly from the already-blended prompt color.
-                // Do NOT call getPromptBlendOverlay() here — that would make an
-                // independent useInverse decision on the already-blended (potentially
-                // dark) prompt color and invert the direction. The prompt color's
-                // r/g/b IS the correct final pre-blended result from the unified
-                // promptVisualState, so use it directly as the avatar background.
-                avatarColor = {
-                    r: promptColor.r,
-                    g: promptColor.g,
-                    b: promptColor.b,
-                    rgba: promptColor.rgba ?? `rgba(${promptColor.r}, ${promptColor.g}, ${promptColor.b}, 1.0)`,
-                };
-            }
-
-            const a11yColorToApply = promptColor?.a11yColor ?? this._lastA11yColor;
-            const sessionColorToApply = promptColor?.sessionColor ?? this._lastSessionColor;
-
-            if (promptColor?.a11yColor)
-                this._lastA11yColor = promptColor.a11yColor;
-            if (promptColor?.sessionColor)
-                this._lastSessionColor = promptColor.sessionColor;
-
-            const defaultVibrancy = this._gdm._extension ? this._gdm._extension.getSettings().get_string('prompt-vibrancy') : 'tonal';
-            const vibrancyMode = effectiveMetadata?.promptVibrancyMode ?? defaultVibrancy;
-            const isSolid = (vibrancyMode === 'tonal' || vibrancyMode === 'less');
-
-            if (promptColor &&
-                promptColor.r != null &&
-                promptColor.g != null &&
-                promptColor.b != null &&
-                (isSolid || hasValidPromptImage)) {
-                this.applyPromptEntryBackground(entry, promptColor);
-                if (authPrompt.cancelButton)
-                    this.applyCancelButtonBackground(authPrompt.cancelButton, promptColor);
-                if (this._gdm?._avatarManager && avatarColor)
-                    this._gdm._avatarManager.updateAvatarVibrancy(avatarColor);
-                if (a11yButton && a11yColorToApply)
-                    this.applyA11yButtonBackground(a11yButton, a11yColorToApply);
-                if (sessionButton && sessionColorToApply)
-                    this.applySessionButtonBackground(sessionButton, sessionColorToApply);
-
-                if (isSolid || hasValidPromptImage)
-                    return;
-            }
-
-            wallpaperParams = {
-                uri: resolveGdmAccessibleUri(effectiveMetadata),
-                isColor: effectiveMetadata.is_color,
-                primaryColor: effectiveMetadata.primary_color,
-                secondaryColor: effectiveMetadata.secondary_color,
-                shadingType: effectiveMetadata.shading_type,
-                wellH: wellH,
-                yCenterFraction: yCenterFraction,
-                promptBounds: promptBounds,
-                cancelBounds: cancelBounds,
-                avatarBounds: avatarBounds,
-                a11yBounds: a11yBounds,
-                sessionBounds: sessionBounds,
-                vibrancyMode: vibrancyMode,
-            };
-        } else {
-            const bgSettings = new Gio.Settings({ schema_id: 'org.gnome.desktop.background' });
-            const uri = bgSettings.get_string('picture-uri');
-            const style = bgSettings.get_enum('picture-options');
-            const primaryColor = bgSettings.get_string('primary-color');
-            const secondaryColor = bgSettings.get_string('secondary-color');
-            const shadingType = bgSettings.get_enum('color-shading-type');
-            const isColor = (style === 0);
-
-            wallpaperParams = {
-                uri,
-                isColor,
-                primaryColor,
-                secondaryColor,
-                shadingType,
-                wellH: wellH,
-                yCenterFraction: yCenterFraction,
-                promptBounds: promptBounds,
-                cancelBounds: cancelBounds,
-                avatarBounds: avatarBounds,
-                a11yBounds: a11yBounds,
-                sessionBounds: sessionBounds,
-            };
-        }
-
-        if (!wallpaperParams)
-            return;
-
-        const requestId = ++this.promptColorRequestId;
-        const color = await getWallpaperPromptColor(wallpaperParams);
-
-        if (requestId !== this.promptColorRequestId)
-            return;
-
-        if (color && effectiveMetadata) {
-            effectiveMetadata.promptColor = color;
-            if (this._gdm._currentWallpaperMetadata)
-                this._gdm._currentWallpaperMetadata.promptColor = color;
-
-            if (effectiveMetadata.username === 'gdm' || !effectiveMetadata.username) {
-                if (this._gdm._wallpaperManager)
-                    this._gdm._wallpaperManager.saveGdmWallpaperMetadata(effectiveMetadata);
-            }
-        }
-
-        const currentPrompt = this._gdm._dialog?._authPrompt;
-        const currentEntry = this.findPromptEntry(currentPrompt);
-        if (!currentPrompt || !currentEntry || !currentPrompt.has_style_class_name('wack-cupertino-prompt'))
-            return;
-
-        if (!color) {
-            this.clearCupertinoPromptBackground();
-            return;
-        }
-
-        this.applyPromptEntryBackground(currentEntry, color);
-        if (currentPrompt.cancelButton)
-            this.applyCancelButtonBackground(currentPrompt.cancelButton, color);
-
-        let finalAvatarColor = color?.avatarColor;
-        if (!finalAvatarColor && color && color.r != null) {
-            // Derive avatar color directly from the already-blended prompt color.
-            // Do NOT call getPromptBlendOverlay() here — that would make an
-            // independent useInverse decision on the already-blended (potentially
-            // dark) prompt color and invert the direction. The prompt color's
-            // r/g/b IS the correct final pre-blended result from the unified
-            // promptVisualState, so use it directly as the avatar background.
-            finalAvatarColor = {
-                r: color.r,
-                g: color.g,
-                b: color.b,
-                rgba: color.rgba ?? `rgba(${color.r}, ${color.g}, ${color.b}, 1.0)`,
-            };
-        }
-        if (this._gdm?._avatarManager && finalAvatarColor)
-            this._gdm._avatarManager.updateAvatarVibrancy(finalAvatarColor);
-
-        if (color.a11yColor)
-            this._lastA11yColor = color.a11yColor;
-        if (color.sessionColor)
-            this._lastSessionColor = color.sessionColor;
-
-        if (a11yButton && color.a11yColor)
-            this.applyA11yButtonBackground(a11yButton, color.a11yColor);
-        if (sessionButton && color.sessionColor)
-            this.applySessionButtonBackground(sessionButton, color.sessionColor);
-    }
-
-    /**
-     * Style the a11y and session bottom buttons from the wallpaper, with no
-     * dependency on authPrompt or the wack-cupertino-prompt class.  Called
-     * immediately on GDM cold boot (applyWallpaper) so the buttons are
-     * vibrancy-coloured before any user is selected.
-     */
-    async updateBottomButtonsBackground(metadata = null) {
-        const effectiveMetadata = metadata ?? this._gdm._currentWallpaperMetadata;
-        const currentDialog = this._gdm._dialog;
-
-        const a11yButton = currentDialog?._a11yMenuButton
-            ?? currentDialog?._bottomButtonGroup?._a11yMenuButton
-            ?? currentDialog?._bottomButtonGroup?.get_children().find(c => c.has_style_class_name('a11y-button'));
-
-        const sessionButton = currentDialog?._authMenuButton
-            ?? currentDialog?._sessionMenuButton?._button
-            ?? currentDialog?._sessionMenuButton?.get_child()
-            ?? currentDialog?._sessionMenuButton
-            ?? currentDialog?._bottomButtonGroup?._authMenuButton
-            ?? currentDialog?._bottomButtonGroup?._sessionMenuButton?._button
-            ?? currentDialog?._bottomButtonGroup?._sessionMenuButton
-            ?? currentDialog?._bottomButtonGroup?.get_children().find(c => c.has_style_class_name('login-dialog-auth-menu-button') || c.has_style_class_name('login-dialog-session-list-button'));
-
-        if (!a11yButton && !sessionButton)
-            return;
-
-        // Fast path: use metadata promptColor first, or fallback to live cached color.
-        const promptColor = effectiveMetadata?.promptColor;
-
-        if (promptColor) {
-            if (promptColor.a11yColor)
-                this._lastA11yColor = promptColor.a11yColor;
-            if (promptColor.sessionColor)
-                this._lastSessionColor = promptColor.sessionColor;
-
-            // Push avatar color to the user list tiles immediately.
-            const cachedAvatarColor = promptColor.avatarColor ?? (promptColor.r != null ? {
-                r: promptColor.r,
-                g: promptColor.g,
-                b: promptColor.b,
-                rgba: promptColor.rgba ?? `rgba(${promptColor.r}, ${promptColor.g}, ${promptColor.b}, 1.0)`,
-            } : null);
-            if (this._gdm?._avatarManager && cachedAvatarColor)
-                this._gdm._avatarManager.updateAvatarVibrancy(cachedAvatarColor);
-        }
-
-        const a11yColorToApply = promptColor?.a11yColor ?? this._lastA11yColor;
-        const sessionColorToApply = promptColor?.sessionColor ?? this._lastSessionColor;
-
-        if (a11yButton && a11yColorToApply)
-            this.applyA11yButtonBackground(a11yButton, a11yColorToApply);
-        if (sessionButton && sessionColorToApply)
-            this.applySessionButtonBackground(sessionButton, sessionColorToApply);
-
-        if (promptColor?.a11yColor && promptColor?.sessionColor)
-            return;
-
-        // Build minimal bounds for the buttons we found — prompt/cancel/avatar
-        // are left null so alphaManager only samples what it needs.
-        const monitor = Main.layoutManager?.primaryMonitor;
-        const monitorX = monitor ? monitor.x : 0;
-        const monitorY = monitor ? monitor.y : 0;
-        const monitorWidth = monitor ? monitor.width : 1920;
-        const monitorHeight = monitor ? monitor.height : 1080;
-
-        let a11yBounds = null;
-        if (a11yButton && a11yButton.get_stage()) {
-            const [ax, ay] = a11yButton.get_transformed_position();
-            const aw = a11yButton.get_width() || A11Y_BUTTON_WIDTH;
-            const ah = a11yButton.get_height() || A11Y_BUTTON_HEIGHT;
-            if (aw > 0 && ah > 0 && monitorWidth > 0 && monitorHeight > 0 && ax >= monitorX && ay >= monitorY) {
-                const ex = ax + A11Y_BUTTON_X_OFFSET;
-                const ey = ay + A11Y_BUTTON_Y_OFFSET;
-                a11yBounds = {
-                    x1: Math.max(0, Math.min(1, (ex - monitorX) / monitorWidth)),
-                    x2: Math.max(0, Math.min(1, (ex + aw - monitorX) / monitorWidth)),
-                    y1: Math.max(0, Math.min(1, (ey - monitorY) / monitorHeight)),
-                    y2: Math.max(0, Math.min(1, (ey + ah - monitorY) / monitorHeight)),
-                };
-            }
-        }
-
-        let sessionBounds = null;
-        if (sessionButton && sessionButton.get_stage()) {
-            const [sx, sy] = sessionButton.get_transformed_position();
-            const sw = sessionButton.get_width() || SESSION_BUTTON_WIDTH;
-            const sh = sessionButton.get_height() || SESSION_BUTTON_HEIGHT;
-            if (sw > 0 && sh > 0 && monitorWidth > 0 && monitorHeight > 0 && sx >= monitorX && sy >= monitorY) {
-                const ex = sx + SESSION_BUTTON_X_OFFSET;
-                const ey = sy + SESSION_BUTTON_Y_OFFSET;
-                sessionBounds = {
-                    x1: Math.max(0, Math.min(1, (ex - monitorX) / monitorWidth)),
-                    x2: Math.max(0, Math.min(1, (ex + sw - monitorX) / monitorWidth)),
-                    y1: Math.max(0, Math.min(1, (ey - monitorY) / monitorHeight)),
-                    y2: Math.max(0, Math.min(1, (ey + sh - monitorY) / monitorHeight)),
-                };
-            }
-        }
-
-        let wallpaperParams;
-        if (effectiveMetadata) {
-            wallpaperParams = {
-                uri: resolveGdmAccessibleUri(effectiveMetadata),
-                isColor: effectiveMetadata.is_color,
-                primaryColor: effectiveMetadata.primary_color,
-                secondaryColor: effectiveMetadata.secondary_color,
-                shadingType: effectiveMetadata.shading_type,
-                wellH: 0,
-                yCenterFraction: null,
-                promptBounds: null,
-                cancelBounds: null,
-                avatarBounds: null,
-                a11yBounds,
-                sessionBounds,
-            };
-        } else {
-            const bgSettings = new Gio.Settings({ schema_id: 'org.gnome.desktop.background' });
-            const uri = bgSettings.get_string('picture-uri');
-            const style = bgSettings.get_enum('picture-options');
-            wallpaperParams = {
-                uri,
-                isColor: (style === 0),
-                primaryColor: bgSettings.get_string('primary-color'),
-                secondaryColor: bgSettings.get_string('secondary-color'),
-                shadingType: bgSettings.get_enum('color-shading-type'),
-                wellH: 0,
-                yCenterFraction: null,
-                promptBounds: null,
-                cancelBounds: null,
-                avatarBounds: null,
-                a11yBounds,
-                sessionBounds,
-            };
-        }
-
-        const requestId = ++this.bottomButtonsColorRequestId;
-        const color = await getWallpaperPromptColor(wallpaperParams);
-
-        if (requestId !== this.bottomButtonsColorRequestId)
-            return;
-        if (!color)
-            return;
-
-        if (color.a11yColor)
-            this._lastA11yColor = color.a11yColor;
-        if (color.sessionColor)
-            this._lastSessionColor = color.sessionColor;
-
-        // Re-resolve buttons after the await — the dialog may have been replaced.
-        const dlg = this._gdm._dialog;
-        const freshA11y = dlg?._a11yMenuButton
-            ?? dlg?._bottomButtonGroup?._a11yMenuButton
-            ?? dlg?._bottomButtonGroup?.get_children().find(c => c.has_style_class_name('a11y-button'));
-        const freshSession = dlg?._authMenuButton
-            ?? dlg?._sessionMenuButton?._button
-            ?? dlg?._sessionMenuButton?.get_child()
-            ?? dlg?._sessionMenuButton
-            ?? dlg?._bottomButtonGroup?._authMenuButton
-            ?? dlg?._bottomButtonGroup?._sessionMenuButton?._button
-            ?? dlg?._bottomButtonGroup?._sessionMenuButton
-            ?? dlg?._bottomButtonGroup?.get_children().find(c => c.has_style_class_name('login-dialog-auth-menu-button') || c.has_style_class_name('login-dialog-session-list-button'));
-
-        if (freshA11y && color.a11yColor) this.applyA11yButtonBackground(freshA11y, color.a11yColor);
-        if (freshSession && color.sessionColor) this.applySessionButtonBackground(freshSession, color.sessionColor);
-
-        // Push avatar colour to the user list tiles (visible before account selection).
-        const listAvatarColor = color.avatarColor ?? {
-            r: color.r, g: color.g, b: color.b,
-            rgba: `rgba(${color.r}, ${color.g}, ${color.b}, 1.0)`,
-        };
-        if (this._gdm?._avatarManager && listAvatarColor)
-            this._gdm._avatarManager.updateAvatarVibrancy(listAvatarColor);
     }
 }

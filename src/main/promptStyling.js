@@ -90,6 +90,10 @@ export class PromptStyling {
         if (!entry)
             return;
 
+        const isCupertino = this._extension?._lockscreenMode === 'cupertino';
+        if (color && !isCupertino)
+            color = null;
+
         if (!color) {
             entry.disconnectObject(this);
             if (entry.clutter_text)
@@ -346,6 +350,12 @@ export class PromptStyling {
         if (!button)
             return;
 
+        if (buttonType === 'cancel' && color) {
+            const isCupertino = this._extension?._lockscreenMode === 'cupertino';
+            if (!isCupertino)
+                color = null;
+        }
+
         if (!color) {
             button.disconnectObject(this);
             const menu = this._findMenuForButton(button);
@@ -531,7 +541,8 @@ export class PromptStyling {
     }
 
     applyCancelButtonBackground(button, color) {
-        this._setupChromeButton(button, color, 'cancel');
+        const isCupertino = this._extension?._lockscreenMode === 'cupertino';
+        this._setupChromeButton(button, isCupertino ? color : null, 'cancel');
     }
 
     updateCancelButtonStyle(button) {

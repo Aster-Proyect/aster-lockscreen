@@ -75,7 +75,7 @@ export class GdmAnimationController {
         }
     }
 
-    yeetLegacyPromptTransform() {
+    resetLegacyPromptTransform() {
         const authPrompt = this._gdm._dialog?._authPrompt;
         if (!authPrompt)
             return;
@@ -101,7 +101,7 @@ export class GdmAnimationController {
             return;
         }
 
-        this.yeetLegacyPromptTransform();
+        this.resetLegacyPromptTransform();
         authPrompt.visible = true;
         this._legacySuccessFadeRunning = true;
         authPrompt.remove_all_transitions();
@@ -123,7 +123,7 @@ export class GdmAnimationController {
             return;
 
         if (this._gdm._legacyPromptAnimationState !== 'selection') {
-            this.yeetLegacyPromptTransform();
+            this.resetLegacyPromptTransform();
             authPrompt.opacity = 255;
             authPrompt.visible = true;
             return;
@@ -210,7 +210,7 @@ export class GdmAnimationController {
             mode: Clutter.AnimationMode.EASE_OUT_QUAD,
             onComplete: () => {
                 _log('[WACK/GdmManager] _animateLegacyPromptOut: animation complete');
-                this.yeetLegacyPromptTransform();
+                this.resetLegacyPromptTransform();
                 authPrompt.visible = false;
                 authPrompt.opacity = 255;
                 if (onComplete) onComplete();
@@ -331,12 +331,10 @@ export class GdmAnimationController {
         this._gdm._skipLegacyPromptEntryAnimation = false;
         this._gdm._legacyPromptAnimationState = 'selection';
         this.animateSessionMenuButtonIn();
-        this._gdm._clearCupertinoPromptBackground();
 
-        if (this._gdm._dialog._user)
-            this._gdm._applyWallpaper(this._gdm._dialog._user.get_user_name());
-        else
-            this._gdm._applyWallpaper(null);
+        const selectedUser = this._gdm._dialog._user ? this._gdm._dialog._user.get_user_name() : null;
+        this._gdm._applyWallpaper(selectedUser);
+
         this._gdm._selectedPromptMode = this._gdm._currentWallpaperMetadata?.lockscreenMode === 'wack'
             ? 'wack'
             : 'cupertino';
@@ -362,6 +360,8 @@ export class GdmAnimationController {
 
         this.setLegacyPromptChrome(false);
         this._gdm._setupGdmAvatarOverride();
+        if (this._gdm._avatarManager)
+            this._gdm._avatarManager.wrapGdmAvatar();
         authPrompt.remove_style_class_name('wack-gdm-legacy-prompt');
 
         if (this._gdm._cupertinoRestPromptContainer) {
@@ -393,9 +393,6 @@ export class GdmAnimationController {
         if (authPrompt._capsLockWarningLabel) {
             authPrompt._capsLockWarningLabel.add_style_class_name('wack-cupertino-caps-lock-warning');
         }
-        if (this._gdm._promptStyling) {
-            this._gdm._promptStyling.updatePromptMessageStyle();
-        }
 
         const uw = authPrompt._userWell?.get_child();
         if (uw) {
@@ -406,12 +403,11 @@ export class GdmAnimationController {
             }
         }
 
-        this._gdm._updateCupertinoPromptBackground().catch(e => {
-            _log('[WACK/GdmManager] Failed to apply Cupertino prompt color: ' + e);
-        });
-        this._gdm._updateBottomButtonsBackground().catch(e => {
-            _log('[WACK/GdmManager] Failed to apply bottom buttons color: ' + e);
-        });
+        // Apply theme synchronously to newly initialized prompt actors
+        const theme = this._gdm._wallpaperManager?.themeStore?.peek(selectedUser) ?? null;
+        if (theme && this._gdm._promptStyling) {
+            this._gdm._promptStyling.applyTheme(theme);
+        }
 
         this._gdm._updateLockscreenMessage();
         this._gdm._positionAuthPrompt();
@@ -430,10 +426,11 @@ export class GdmAnimationController {
         if (!authPrompt) return;
 
         this._gdm._setPromptBackgroundBlur(false, false);
-        if (this._gdm._selectedPromptMode === 'wack')
+        if (this._gdm._selectedPromptMode === 'wack') {
             this.setLegacyPromptChrome(false, false);
+            this._gdm._teardownGdmAvatarOverride();
+        }
         this._gdm._selectedPromptMode = 'cupertino';
-        this._gdm._teardownGdmAvatarOverride();
 
         if (this._gdm._cupertinoRestPromptContainer) {
             this._gdm._cupertinoRestPromptContainer.destroy();

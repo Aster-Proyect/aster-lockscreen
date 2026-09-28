@@ -2,6 +2,7 @@ import Gio from 'gi://Gio';
 import GdkPixbuf from 'gi://GdkPixbuf';
 import GLib from 'gi://GLib';
 import { resolveSlideshowXmlContent } from './constants.js';
+import { _logError } from './mainUtils.js';
 
 export function getWallpaperFileInfo(filePath) {
     return new Promise((resolve) => {
@@ -115,7 +116,7 @@ export function resolveSlideshowXml(xmlPath) {
                 resolve(resolved);
                 return;
             } catch (e) {
-                console.error(`[WACK/WallpaperUtils] Failed to resolve XML slideshow: ${e}`);
+                _logError(`[WACK/WallpaperUtils] Failed to resolve XML slideshow: ${e}`);
             }
             resolve(null);
         });

@@ -1,7 +1,7 @@
 import Gio from 'gi://Gio';
 import GLib from 'gi://GLib';
-
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
+import { _logError } from './mainUtils.js';
 
 const MANUAL_FADE_TIME = 300; // mirrors screenShield.js
 
@@ -28,7 +28,7 @@ export class UnblankManager {
             '/org/freedesktop/UPower',
             (proxy, error) => {
                 if (error) {
-                    console.error('UnblankManager: UPower proxy error:', error.message);
+                    _logError(`[WACK/UnblankManager] UPower proxy error: ${error.message}`);
                     return;
                 }
                 this._lastOnBattery = this._upowerProxy.OnBattery;
