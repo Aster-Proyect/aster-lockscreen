@@ -19,7 +19,6 @@ export class UnlockDialogController {
         this.origUpdateBgEffects = null;
         this.origUpdateUserSwitchVisibility = null;
         this.origFinish = null;
-        this.origContinueDeactivate = null;
         this.origSetTransitionProgress = null;
         this.origEnsureAuthPrompt = null;
         this.finishTimeoutId = null;
@@ -226,41 +225,7 @@ export class UnlockDialogController {
             }
         };
 
-        // 4. Skip Slide-up in Cupertino Mode
-        const shield = Main.screenShield;
-        this.origContinueDeactivate = shield._continueDeactivate.bind(shield);
-        shield._continueDeactivate = (animate) => {
-            const isCupertino = this._extension._lockscreenMode === 'cupertino';
-            if (isCupertino) {
-                shield._hideLockScreen(false);
-                if (Main.sessionMode.currentMode === 'unlock-dialog') {
-                    Main.sessionMode.popMode('unlock-dialog');
-                }
-                shield.emit('wake-up-screen');
-
-                if (shield._isGreeter) {
-                    shield._activationTime = 0;
-                    shield._setActive(false);
-                    return;
-                }
-
-                if (shield._dialog && !shield._isGreeter) shield._dialog.popModal();
-
-                if (shield._grab) {
-                    Main.popModal(shield._grab);
-                    shield._grab = null;
-                }
-
-                shield._longLightbox.lightOff();
-                shield._shortLightbox.lightOff();
-                shield._lockDialogGroup.translation_y = -global.screen_height;
-                shield._completeDeactivate();
-            } else {
-                this.origContinueDeactivate(animate);
-            }
-        };
-
-        // 5. NotificationsBox changes tracking
+        // 4. NotificationsBox changes tracking
         if (dialog._notificationsBox) {
             dialog._notificationsBox.connectObject(
                 'notify::height', () => {
@@ -436,11 +401,6 @@ export class UnlockDialogController {
         if (dialog && this.origFinish) {
             dialog.finish = this.origFinish;
             this.origFinish = null;
-        }
-
-        if (this.origContinueDeactivate) {
-            if (Main.screenShield) Main.screenShield._continueDeactivate = this.origContinueDeactivate;
-            this.origContinueDeactivate = null;
         }
 
         if (dialog && this.origSetTransitionProgress) {
