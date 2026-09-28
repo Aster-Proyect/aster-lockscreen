@@ -5,7 +5,7 @@ import St from 'gi://St';
 import Shell from 'gi://Shell';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import { getWallpaperAlpha, getWallpaperPromptColor } from '../main/alphaManager.js';
-import { initCacheSync } from '../main/alphaCache.js';
+import { initCache } from '../main/alphaCache.js';
 import { resolveSlideshowXmlContent } from '../main/constants.js';
 import { resolveGdmAccessibleUri, _log, _logError } from './gdmUtils.js';
 
@@ -39,7 +39,7 @@ export class GdmThemeStore {
         this._slideTimerId = 0;
         this._revision = 0;
 
-        initCacheSync();
+        initCache().catch(() => {});
 
         this._settings = extension.getSettings();
         this._vibrancy = this._settings.get_string('prompt-vibrancy');
