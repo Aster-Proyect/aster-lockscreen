@@ -587,10 +587,6 @@ export class GdmPromptStyling {
         this._setupChromeButton(button, isCupertino ? color : null, 'cancel');
     }
 
-    updateCancelButtonStyle(button) {
-        this._updateChromeButtonStyle(button, 'cancel');
-    }
-
     applyA11yButtonBackground(button, color) {
         this._setupChromeButton(button, color, 'a11y');
     }
@@ -659,8 +655,8 @@ export class GdmPromptStyling {
             this.applySessionButtonBackground(sessionButton, sessionColorToApply);
         }
 
-        if (theme.clockAlpha != null) {
-            this.updatePromptMessageStyle(null, theme.clockAlpha);
+        if (theme.clockAlpha != null || promptColor != null) {
+            this.updatePromptMessageStyle(promptColor, theme.clockAlpha);
         }
     }
 

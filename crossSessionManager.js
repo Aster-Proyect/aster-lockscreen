@@ -5,11 +5,76 @@ import { resolveSlideshowXmlContent } from './src/main/constants.js';
 import { blendPixbufs } from './src/main/wallpaperUtils.js';
 import { _log, _logError } from './src/main/mainUtils.js';
 
-Gio._promisify(Gio.File.prototype, 'load_contents_async', 'load_contents_finish');
-Gio._promisify(Gio.File.prototype, 'query_info_async', 'query_info_finish');
-Gio._promisify(Gio.File.prototype, 'replace_contents_async', 'replace_contents_finish');
-Gio._promisify(Gio.File.prototype, 'enumerate_children_async', 'enumerate_children_finish');
-Gio._promisify(Gio.FileEnumerator.prototype, 'next_files_async', 'next_files_finish');
+function loadContentsAsync(file, cancellable = null) {
+    return new Promise((resolve, reject) => {
+        file.load_contents_async(cancellable, (f, res) => {
+            try {
+                const [success, contents, etag] = f.load_contents_finish(res);
+                if (success)
+                    resolve([contents, etag]);
+                else
+                    reject(new Error('Failed to load file contents'));
+            } catch (e) {
+                reject(e);
+            }
+        });
+    });
+}
+
+function queryInfoAsync(file, attributes, flags = Gio.FileQueryInfoFlags.NONE, ioPriority = GLib.PRIORITY_DEFAULT, cancellable = null) {
+    return new Promise((resolve, reject) => {
+        file.query_info_async(attributes, flags, ioPriority, cancellable, (f, res) => {
+            try {
+                const info = f.query_info_finish(res);
+                resolve(info);
+            } catch (e) {
+                reject(e);
+            }
+        });
+    });
+}
+
+function replaceContentsAsync(file, contents, etag = null, makeBackup = false, flags = Gio.FileCreateFlags.REPLACE_DESTINATION, cancellable = null) {
+    return new Promise((resolve, reject) => {
+        file.replace_contents_async(contents, etag, makeBackup, flags, cancellable, (f, res) => {
+            try {
+                const [success, newEtag] = f.replace_contents_finish(res);
+                if (success)
+                    resolve([success, newEtag]);
+                else
+                    reject(new Error('Failed to replace file contents'));
+            } catch (e) {
+                reject(e);
+            }
+        });
+    });
+}
+
+function enumerateChildrenAsync(file, attributes, flags = Gio.FileQueryInfoFlags.NONE, ioPriority = GLib.PRIORITY_DEFAULT, cancellable = null) {
+    return new Promise((resolve, reject) => {
+        file.enumerate_children_async(attributes, flags, ioPriority, cancellable, (f, res) => {
+            try {
+                const enumerator = f.enumerate_children_finish(res);
+                resolve(enumerator);
+            } catch (e) {
+                reject(e);
+            }
+        });
+    });
+}
+
+function nextFilesAsync(enumerator, numFiles, ioPriority = GLib.PRIORITY_DEFAULT, cancellable = null) {
+    return new Promise((resolve, reject) => {
+        enumerator.next_files_async(numFiles, ioPriority, cancellable, (e, res) => {
+            try {
+                const files = e.next_files_finish(res);
+                resolve(files);
+            } catch (err) {
+                reject(err);
+            }
+        });
+    });
+}
 
 export class CrossSessionManager {
     constructor(extensionSettings) {
@@ -174,6 +239,220 @@ export class CrossSessionManager {
         }
     }
 
+    async _processVariant(uri, variantTag, timestamp, colorScheme, existingVariant, isColor) {
+        if (!uri || isColor) {
+            return {
+                source_uri: uri,
+                source_mtime: 0,
+                source_size: 0,
+                uri: uri,
+                target_path: null,
+                slideshow_xml_text: null,
+                resolved_slide_path: null,
+                resolved_slide_progress: 0.0,
+                is_color: isColor,
+            };
+        }
+
+        const SHARED_DIR = '/var/tmp/wack/shared';
+        const userName = GLib.get_user_name();
+        const isXml = uri && uri.toLowerCase().endsWith('.xml');
+        let targetPath = `${SHARED_DIR}/wack-shared-wallpaper-${userName}-${variantTag}-${timestamp}.jpg`;
+
+        let resolvedSlidePath = null;
+        let resolvedSlideInfo = null;
+        let slideshowXmlText = null;
+
+        if (isXml && (uri.startsWith('file://') || uri.startsWith('/'))) {
+            try {
+                const srcFile = uri.startsWith('file://') ? Gio.File.new_for_uri(uri) : Gio.File.new_for_path(uri);
+                if (srcFile.query_exists(null)) {
+                    const [contents] = await loadContentsAsync(srcFile);
+                    if (contents) {
+                        const xmlText = new TextDecoder().decode(contents);
+                        slideshowXmlText = xmlText;
+                        const resolved = resolveSlideshowXmlContent(xmlText, colorScheme);
+                        if (resolved) {
+                            if (typeof resolved === 'string') {
+                                resolvedSlidePath = resolved;
+                                resolvedSlideInfo = { filePath: resolved, isTransition: false, from: resolved, to: resolved, progress: 0.0 };
+                            } else {
+                                resolvedSlidePath = resolved.filePath;
+                                resolvedSlideInfo = resolved;
+                            }
+                        }
+                    }
+                }
+            } catch (xmlErr) {
+                _log(`[WACK/CrossSession] Failed to parse XML slideshow (${variantTag}): ${xmlErr}`);
+            }
+        }
+
+        const currentSlideProgress = resolvedSlideInfo?.isTransition
+            ? Math.round((resolvedSlideInfo.progress ?? 0) * 100) / 100
+            : 0.0;
+
+        let srcMtime = 0;
+        let srcSize = 0;
+        let realSrcFile = null;
+        if (isXml && resolvedSlidePath) {
+            realSrcFile = Gio.File.new_for_path(resolvedSlidePath);
+        } else if (uri.startsWith('file://')) {
+            realSrcFile = Gio.File.new_for_uri(uri);
+        } else {
+            realSrcFile = Gio.File.new_for_path(uri);
+        }
+
+        if (realSrcFile && realSrcFile.query_exists(null)) {
+            try {
+                const info = await queryInfoAsync(realSrcFile, 'time::modified,standard::size', Gio.FileQueryInfoFlags.NONE, GLib.PRIORITY_DEFAULT, null);
+                srcMtime = info.get_attribute_uint64('time::modified');
+                srcSize = info.get_attribute_uint64('standard::size');
+            } catch (_) {}
+        }
+
+        let metadataMatches = false;
+        if (existingVariant) {
+            if (existingVariant.source_uri === uri &&
+                existingVariant.source_mtime === srcMtime &&
+                existingVariant.source_size === srcSize) {
+                if (isXml) {
+                    if (existingVariant.resolved_slide_path === resolvedSlidePath &&
+                        (existingVariant.resolved_slide_progress ?? 0.0) === currentSlideProgress)
+                        metadataMatches = true;
+                } else {
+                    metadataMatches = true;
+                }
+
+                if (metadataMatches && existingVariant.uri) {
+                    const pathToCheck = existingVariant.uri.startsWith('file://')
+                        ? existingVariant.uri.substring(7)
+                        : existingVariant.uri;
+                    const fileToCheck = Gio.File.new_for_path(pathToCheck);
+                    if (fileToCheck.query_exists(null)) {
+                        targetPath = pathToCheck;
+                    } else {
+                        metadataMatches = false;
+                    }
+                } else {
+                    metadataMatches = false;
+                }
+            }
+        }
+
+        let success = metadataMatches;
+        if (!metadataMatches) {
+            if (isXml && resolvedSlideInfo?.isTransition && resolvedSlideInfo.from && resolvedSlideInfo.to) {
+                try {
+                    const fileFrom = Gio.File.new_for_path(resolvedSlideInfo.from);
+                    const fileTo = Gio.File.new_for_path(resolvedSlideInfo.to);
+                    if (fileFrom.query_exists(null) && fileTo.query_exists(null)) {
+                        const pbFrom = GdkPixbuf.Pixbuf.new_from_file(resolvedSlideInfo.from);
+                        const pbTo = GdkPixbuf.Pixbuf.new_from_file(resolvedSlideInfo.to);
+                        const MAX_DIM = 2560;
+
+                        const w = pbFrom.get_width();
+                        const h = pbFrom.get_height();
+                        let scaleW = w;
+                        let scaleH = h;
+                        if (w > MAX_DIM || h > MAX_DIM) {
+                            if (w > h) {
+                                scaleW = MAX_DIM;
+                                scaleH = Math.round((h * MAX_DIM) / w);
+                            } else {
+                                scaleH = MAX_DIM;
+                                scaleW = Math.round((w * MAX_DIM) / h);
+                            }
+                        }
+
+                        const scaledFrom = (scaleW !== w || scaleH !== h)
+                            ? pbFrom.scale_simple(scaleW, scaleH, GdkPixbuf.InterpType.BILINEAR)
+                            : pbFrom;
+                        const scaledTo = (scaleW !== pbTo.get_width() || scaleH !== pbTo.get_height())
+                            ? pbTo.scale_simple(scaleW, scaleH, GdkPixbuf.InterpType.BILINEAR)
+                            : pbTo;
+
+                        const blended = blendPixbufs(scaledFrom, scaledTo, resolvedSlideInfo.progress);
+                        if (blended) {
+                            const tmpTargetPath = `${targetPath}.tmp.${GLib.random_int()}`;
+                            blended.savev(tmpTargetPath, 'jpeg', ['quality'], ['80']);
+                            const tmpDestFile = Gio.File.new_for_path(tmpTargetPath);
+                            tmpDestFile.set_attribute_uint32('unix::mode', 0o644, Gio.FileQueryInfoFlags.NONE, null);
+                            const finalDestFile = Gio.File.new_for_path(targetPath);
+                            tmpDestFile.move(finalDestFile, Gio.FileCopyFlags.OVERWRITE, null, null);
+                            success = true;
+                            _log(`[WACK/CrossSession] Successfully blended and saved transition wallpaper JPEG (${variantTag})`);
+                        }
+                    }
+                } catch (blendErr) {
+                    _log(`[WACK/CrossSession] Fallback from transition blend error (${variantTag}): ${blendErr}`);
+                }
+            }
+
+            if (!success && realSrcFile && realSrcFile.query_exists(null)) {
+                try {
+                    const srcPath = realSrcFile.get_path();
+                    const pixbuf = GdkPixbuf.Pixbuf.new_from_file(srcPath);
+                    const w = pixbuf.get_width();
+                    const h = pixbuf.get_height();
+
+                    const MAX_DIM = 2560;
+                    let scaleW = w;
+                    let scaleH = h;
+                    if (w > MAX_DIM || h > MAX_DIM) {
+                        if (w > h) {
+                            scaleW = MAX_DIM;
+                            scaleH = Math.round((h * MAX_DIM) / w);
+                        } else {
+                            scaleH = MAX_DIM;
+                            scaleW = Math.round((w * MAX_DIM) / h);
+                        }
+                    }
+
+                    const scaled = (scaleW !== w || scaleH !== h)
+                        ? pixbuf.scale_simple(scaleW, scaleH, GdkPixbuf.InterpType.BILINEAR)
+                        : pixbuf;
+
+                    const tmpTargetPath = `${targetPath}.tmp.${GLib.random_int()}`;
+                    scaled.savev(tmpTargetPath, 'jpeg', ['quality'], ['80']);
+                    const tmpDestFile = Gio.File.new_for_path(tmpTargetPath);
+                    tmpDestFile.set_attribute_uint32('unix::mode', 0o644, Gio.FileQueryInfoFlags.NONE, null);
+                    const finalDestFile = Gio.File.new_for_path(targetPath);
+                    tmpDestFile.move(finalDestFile, Gio.FileCopyFlags.OVERWRITE, null, null);
+                    success = true;
+                    _log(`[WACK/CrossSession] Successfully optimized and saved wallpaper JPEG (${variantTag})`);
+                } catch (err) {
+                    _log(`[WACK/CrossSession] Fallback to direct copy due to GdkPixbuf error (${variantTag}): ${err}`);
+                    try {
+                        const srcPath = realSrcFile.get_path();
+                        let srcExt = '.jpg';
+                        const lastDot = srcPath.lastIndexOf('.');
+                        if (lastDot !== -1)
+                            srcExt = srcPath.substring(lastDot);
+                        targetPath = `${SHARED_DIR}/wack-shared-wallpaper-${userName}-${variantTag}-${timestamp}${srcExt}`;
+                        const destFile = Gio.File.new_for_path(targetPath);
+                        realSrcFile.copy(destFile, Gio.FileCopyFlags.OVERWRITE, null, null);
+                        destFile.set_attribute_uint32('unix::mode', 0o644, Gio.FileQueryInfoFlags.NONE, null);
+                        success = true;
+                    } catch (_) {}
+                }
+            }
+        }
+
+        return {
+            source_uri: uri,
+            source_mtime: srcMtime,
+            source_size: srcSize,
+            uri: success ? `file://${targetPath}` : uri,
+            target_path: success ? targetPath : null,
+            slideshow_xml_text: slideshowXmlText,
+            resolved_slide_path: resolvedSlidePath,
+            resolved_slide_progress: currentSlideProgress,
+            is_color: false,
+            metadataMatches,
+        };
+    }
+
     async _saveWallpaperAsync() {
         const SHARED_DIR = '/var/tmp/wack/shared';
         const LEGACY_SHARED_DIR = '/var/tmp';
@@ -192,63 +471,33 @@ export class CrossSessionManager {
             return;
 
         const userName = GLib.get_user_name();
-        const colorScheme = this._interfaceSettings.get_enum('color-scheme');
+        const activeColorScheme = this._interfaceSettings.get_enum('color-scheme');
         const style = this._bgSettings.get_enum('picture-options');
+        const isColor = (style === 0);
 
         const customWallpaperEnabled = this._settings ? this._settings.get_boolean('lockscreen-wallpaper-enable') : false;
         const customWallpaperPath = this._settings ? this._settings.get_string('lockscreen-wallpaper-path') : '';
 
-        let uri;
+        let lightUri, darkUri;
         if (customWallpaperEnabled && customWallpaperPath && Gio.File.new_for_path(customWallpaperPath).query_exists(null)) {
-            uri = customWallpaperPath.startsWith('file://') ? customWallpaperPath : `file://${customWallpaperPath}`;
+            const customUri = customWallpaperPath.startsWith('file://') ? customWallpaperPath : `file://${customWallpaperPath}`;
+            lightUri = customUri;
+            darkUri = customUri;
         } else {
-            uri = this._bgSettings.get_string(
-                colorScheme === 1 // PREFER_DARK
-                    ? 'picture-uri-dark'
-                    : 'picture-uri'
-            );
+            lightUri = this._bgSettings.get_string('picture-uri');
+            darkUri = this._bgSettings.get_string('picture-uri-dark');
+            if (!darkUri) darkUri = lightUri;
+            if (!lightUri) lightUri = darkUri;
         }
 
-        if (this._lastMonitoredUri !== uri) {
-            this._lastMonitoredUri = uri;
-            this._updateWallpaperFileMonitor(uri);
+        const activeUri = activeColorScheme === 1 ? darkUri : lightUri;
+
+        if (this._lastMonitoredUri !== activeUri) {
+            this._lastMonitoredUri = activeUri;
+            this._updateWallpaperFileMonitor(activeUri);
         }
 
-        const isColor = (style === 0);
-        const isXml = uri && uri.toLowerCase().endsWith('.xml');
-
-        const timestamp = Date.now();
-        let targetPath = `${SHARED_DIR}/wack-shared-wallpaper-${userName}-${timestamp}.jpg`;
-
-        let resolvedSlidePath = null;
-        let resolvedSlideInfo = null;
-        let slideshowXmlText = null;
-
-        if (isXml && (uri.startsWith('file://') || uri.startsWith('/'))) {
-            try {
-                const srcFile = uri.startsWith('file://') ? Gio.File.new_for_uri(uri) : Gio.File.new_for_path(uri);
-                if (srcFile.query_exists(null)) {
-                    const [contents] = await srcFile.load_contents_async(null);
-                    if (contents) {
-                        const xmlText = new TextDecoder().decode(contents);
-                        slideshowXmlText = xmlText;
-                        const resolved = resolveSlideshowXmlContent(xmlText, colorScheme);
-                        if (resolved) {
-                            if (typeof resolved === 'string') {
-                                resolvedSlidePath = resolved;
-                                resolvedSlideInfo = { filePath: resolved, isTransition: false, from: resolved, to: resolved, progress: 0.0 };
-                            } else {
-                                resolvedSlidePath = resolved.filePath;
-                                resolvedSlideInfo = resolved;
-                            }
-                        }
-                    }
-                }
-            } catch (xmlErr) {
-                _log(`[WACK/CrossSession] Failed to parse XML slideshow: ${xmlErr}`);
-            }
-        }
-
+        // Read existing metadata to reuse cached JPEGs if possible
         let metaFile = Gio.File.new_for_path(`${SHARED_DIR}/wack-shared-wallpaper-${userName}.json`);
         if (!metaFile.query_exists(null)) {
             const legacyMeta = Gio.File.new_for_path(`${LEGACY_SHARED_DIR}/wack-shared-wallpaper-${userName}.json`);
@@ -256,205 +505,64 @@ export class CrossSessionManager {
                 metaFile = legacyMeta;
         }
 
-        let metadataMatches = false;
-        const currentSlideProgress = resolvedSlideInfo?.isTransition
-            ? Math.round((resolvedSlideInfo.progress ?? 0) * 100) / 100
-            : 0.0;
-
-        let srcMtime = 0;
-        let srcSize = 0;
-        if (uri && (uri.startsWith('file://') || uri.startsWith('/')) && !isColor) {
-            let realSrcFile = null;
-            if (isXml && resolvedSlidePath) {
-                realSrcFile = Gio.File.new_for_path(resolvedSlidePath);
-            } else if (uri.startsWith('file://')) {
-                realSrcFile = Gio.File.new_for_uri(uri);
-            } else {
-                realSrcFile = Gio.File.new_for_path(uri);
-            }
-            if (realSrcFile && realSrcFile.query_exists(null)) {
-                try {
-                    const info = await realSrcFile.query_info_async('time::modified,standard::size', Gio.FileQueryInfoFlags.NONE, GLib.PRIORITY_DEFAULT, null);
-                    srcMtime = info.get_attribute_uint64('time::modified');
-                    srcSize = info.get_attribute_uint64('standard::size');
-                } catch (_) {}
-            }
-        }
-
+        let existingMeta = null;
         if (metaFile.query_exists(null)) {
             try {
-                const [contents] = await metaFile.load_contents_async(null);
-                if (contents) {
-                    const existingMetadata = JSON.parse(new TextDecoder().decode(contents));
-                    const currentPrimary = this._bgSettings.get_string('primary-color');
-                    const currentSecondary = this._bgSettings.get_string('secondary-color');
-                    const currentShading = this._bgSettings.get_enum('color-shading-type');
+                const [contents] = await loadContentsAsync(metaFile);
+                if (contents)
+                    existingMeta = JSON.parse(new TextDecoder().decode(contents));
+            } catch (_) {}
+        }
 
-                    if (existingMetadata &&
-                        existingMetadata.source_uri === uri &&
-                        existingMetadata.source_mtime === srcMtime &&
-                        existingMetadata.source_size === srcSize &&
-                        existingMetadata.style === style &&
-                        existingMetadata.primary_color === currentPrimary &&
-                        existingMetadata.secondary_color === currentSecondary &&
-                        existingMetadata.shading_type === currentShading) {
+        const existingLight = existingMeta?.variants?.light ?? (existingMeta?.color_scheme === 0 ? existingMeta : null);
+        const existingDark = existingMeta?.variants?.dark ?? (existingMeta?.color_scheme === 1 ? existingMeta : null);
+        const timestamp = Date.now();
 
-                        if (isXml) {
-                            if (existingMetadata.resolved_slide_path === resolvedSlidePath &&
-                                (existingMetadata.resolved_slide_progress ?? 0.0) === currentSlideProgress)
-                                metadataMatches = true;
-                        } else {
-                            metadataMatches = true;
-                        }
-
-                        if (metadataMatches && !isColor) {
-                            if (existingMetadata.uri) {
-                                const pathToCheck = existingMetadata.uri.startsWith('file://')
-                                    ? existingMetadata.uri.substring(7)
-                                    : existingMetadata.uri;
-                                const fileToCheck = Gio.File.new_for_path(pathToCheck);
-                                if (fileToCheck.query_exists(null)) {
-                                    targetPath = pathToCheck;
-                                } else {
-                                    metadataMatches = false;
-                                }
-                            } else {
-                                metadataMatches = false;
-                            }
-                        }
-                    }
-                }
-            } catch (e) {
-                _log(`[WACK/CrossSession] Failed to verify existing metadata: ${e}`);
+        let lightVariant, darkVariant;
+        if (lightUri === darkUri && !isColor && !lightUri.toLowerCase().endsWith('.xml')) {
+            lightVariant = await this._processVariant(lightUri, 'light', timestamp, 0, existingLight, isColor);
+            darkVariant = { ...lightVariant };
+        } else {
+            if (activeColorScheme === 1) {
+                darkVariant = await this._processVariant(darkUri, 'dark', timestamp, 1, existingDark, isColor);
+                lightVariant = await this._processVariant(lightUri, 'light', timestamp, 0, existingLight, isColor);
+            } else {
+                lightVariant = await this._processVariant(lightUri, 'light', timestamp, 0, existingLight, isColor);
+                darkVariant = await this._processVariant(darkUri, 'dark', timestamp, 1, existingDark, isColor);
             }
         }
 
-        let success = metadataMatches;
-
-        if (!metadataMatches) {
-            if (uri && (uri.startsWith('file://') || uri.startsWith('/')) && !isColor) {
-                if (isXml && resolvedSlideInfo?.isTransition && resolvedSlideInfo.from && resolvedSlideInfo.to) {
-                    try {
-                        const fileFrom = Gio.File.new_for_path(resolvedSlideInfo.from);
-                        const fileTo = Gio.File.new_for_path(resolvedSlideInfo.to);
-                        if (fileFrom.query_exists(null) && fileTo.query_exists(null)) {
-                            const pbFrom = GdkPixbuf.Pixbuf.new_from_file(resolvedSlideInfo.from);
-                            const pbTo = GdkPixbuf.Pixbuf.new_from_file(resolvedSlideInfo.to);
-                            const MAX_DIM = 2560;
-
-                            const w = pbFrom.get_width();
-                            const h = pbFrom.get_height();
-                            let scaleW = w;
-                            let scaleH = h;
-                            if (w > MAX_DIM || h > MAX_DIM) {
-                                if (w > h) {
-                                    scaleW = MAX_DIM;
-                                    scaleH = Math.round((h * MAX_DIM) / w);
-                                } else {
-                                    scaleH = MAX_DIM;
-                                    scaleW = Math.round((w * MAX_DIM) / h);
-                                }
-                            }
-
-                            const scaledFrom = (scaleW !== w || scaleH !== h)
-                                ? pbFrom.scale_simple(scaleW, scaleH, GdkPixbuf.InterpType.BILINEAR)
-                                : pbFrom;
-                            const scaledTo = (scaleW !== pbTo.get_width() || scaleH !== pbTo.get_height())
-                                ? pbTo.scale_simple(scaleW, scaleH, GdkPixbuf.InterpType.BILINEAR)
-                                : pbTo;
-
-                            const blended = blendPixbufs(scaledFrom, scaledTo, resolvedSlideInfo.progress);
-                            if (blended) {
-                                const tmpTargetPath = `${targetPath}.tmp.${GLib.random_int()}`;
-                                blended.savev(tmpTargetPath, 'jpeg', ['quality'], ['80']);
-                                const tmpDestFile = Gio.File.new_for_path(tmpTargetPath);
-                                tmpDestFile.set_attribute_uint32('unix::mode', 0o644, Gio.FileQueryInfoFlags.NONE, null);
-                                const finalDestFile = Gio.File.new_for_path(targetPath);
-                                tmpDestFile.move(finalDestFile, Gio.FileCopyFlags.OVERWRITE, null, null);
-
-                                success = true;
-                                _log('[WACK/CrossSession] Successfully blended and saved transition wallpaper JPEG');
-                            }
-                        }
-                    } catch (blendErr) {
-                        _log(`[WACK/CrossSession] Fallback from transition blend error: ${blendErr}`);
-                    }
-                }
-
-                if (!success) {
-                    let realSrcFile = null;
-                    if (isXml && resolvedSlidePath) {
-                        realSrcFile = Gio.File.new_for_path(resolvedSlidePath);
-                        _log(`[WACK/CrossSession] XML slideshow: using resolved active slide path ${resolvedSlidePath}`);
-                    } else if (uri.startsWith('file://')) {
-                        realSrcFile = Gio.File.new_for_uri(uri);
-                    } else {
-                        realSrcFile = Gio.File.new_for_path(uri);
-                    }
-
-                    if (realSrcFile && realSrcFile.query_exists(null)) {
-                        try {
-                            const srcPath = realSrcFile.get_path();
-                            const pixbuf = GdkPixbuf.Pixbuf.new_from_file(srcPath);
-                            const w = pixbuf.get_width();
-                            const h = pixbuf.get_height();
-
-                            const MAX_DIM = 2560;
-                            let scaleW = w;
-                            let scaleH = h;
-                            if (w > MAX_DIM || h > MAX_DIM) {
-                                if (w > h) {
-                                    scaleW = MAX_DIM;
-                                    scaleH = Math.round((h * MAX_DIM) / w);
-                                } else {
-                                    scaleH = MAX_DIM;
-                                    scaleW = Math.round((w * MAX_DIM) / h);
-                                }
-                            }
-
-                            const scaled = (scaleW !== w || scaleH !== h)
-                                ? pixbuf.scale_simple(scaleW, scaleH, GdkPixbuf.InterpType.BILINEAR)
-                                : pixbuf;
-
-                            const tmpTargetPath = `${targetPath}.tmp.${GLib.random_int()}`;
-                            scaled.savev(tmpTargetPath, 'jpeg', ['quality'], ['80']);
-                            const tmpDestFile = Gio.File.new_for_path(tmpTargetPath);
-                            tmpDestFile.set_attribute_uint32('unix::mode', 0o644, Gio.FileQueryInfoFlags.NONE, null);
-                            const finalDestFile = Gio.File.new_for_path(targetPath);
-                            tmpDestFile.move(finalDestFile, Gio.FileCopyFlags.OVERWRITE, null, null);
-
-                            success = true;
-                            _log('[WACK/CrossSession] Successfully optimized and saved resolved wallpaper JPEG');
-                        } catch (err) {
-                            _log(`[WACK/CrossSession] Fallback to direct copy due to GdkPixbuf error: ${err}`);
-                            const srcPath = realSrcFile.get_path();
-                            let srcExt = '.jpg';
-                            const lastDot = srcPath.lastIndexOf('.');
-                            if (lastDot !== -1)
-                                srcExt = srcPath.substring(lastDot);
-                            targetPath = `${SHARED_DIR}/wack-shared-wallpaper-${userName}-${timestamp}${srcExt}`;
-                            const destFile = Gio.File.new_for_path(targetPath);
-                            realSrcFile.copy(destFile, Gio.FileCopyFlags.OVERWRITE, null, null);
-                            destFile.set_attribute_uint32('unix::mode', 0o644, Gio.FileQueryInfoFlags.NONE, null);
-                            success = true;
-                        }
-                    }
-                }
+        // Attach session's computed visuals to active variant
+        if (activeColorScheme === 1) {
+            darkVariant.clockAlpha = this._clockAlpha ?? 0.6;
+            darkVariant.promptColor = this._promptColor;
+            if (existingLight && existingLight.promptColor && existingLight.source_uri === lightVariant?.source_uri && existingLight.source_mtime === lightVariant?.source_mtime) {
+                lightVariant.clockAlpha = existingLight.clockAlpha ?? 0.6;
+                lightVariant.promptColor = existingLight.promptColor;
+            }
+        } else {
+            lightVariant.clockAlpha = this._clockAlpha ?? 0.6;
+            lightVariant.promptColor = this._promptColor;
+            if (existingDark && existingDark.promptColor && existingDark.source_uri === darkVariant?.source_uri && existingDark.source_mtime === darkVariant?.source_mtime) {
+                darkVariant.clockAlpha = existingDark.clockAlpha ?? 0.6;
+                darkVariant.promptColor = existingDark.promptColor;
             }
         }
+
+        const activeVariant = activeColorScheme === 1 ? darkVariant : lightVariant;
 
         // Strict Publication Invariant:
-        // Metadata is published AFTER the referenced JPEG is verified and on disk.
+        // Metadata is published AFTER the referenced JPEGs are verified and on disk.
         const metadata = {
             username: userName,
-            source_uri: uri,
-            source_mtime: srcMtime,
-            source_size: srcSize,
-            slideshow_xml_text: slideshowXmlText,
-            color_scheme: colorScheme,
-            resolved_slide_path: resolvedSlidePath,
-            resolved_slide_progress: currentSlideProgress,
-            uri: (success && !isColor) ? `file://${targetPath}` : uri,
+            color_scheme: activeColorScheme,
+            source_uri: activeVariant.source_uri,
+            source_mtime: activeVariant.source_mtime,
+            source_size: activeVariant.source_size,
+            slideshow_xml_text: activeVariant.slideshow_xml_text,
+            resolved_slide_path: activeVariant.resolved_slide_path,
+            resolved_slide_progress: activeVariant.resolved_slide_progress,
+            uri: activeVariant.uri,
             style: style,
             primary_color: this._bgSettings.get_string('primary-color'),
             secondary_color: this._bgSettings.get_string('secondary-color'),
@@ -471,11 +579,16 @@ export class CrossSessionManager {
             lockscreenMode: this._settings ? this._settings.get_string('lockscreen-mode') : 'cupertino',
             lockscreenMessageText: this._settings ? this._settings.get_string('cupertino-lockscreen-message-text') : '',
             lockscreenMessageEnable: this._settings ? this._settings.get_boolean('cupertino-lockscreen-message-enable') : false,
+            variants: {
+                light: lightVariant,
+                dark: darkVariant,
+            },
         };
 
         const destMetaFile = Gio.File.new_for_path(`${SHARED_DIR}/wack-shared-wallpaper-${userName}.json`);
         const encodedMeta = new TextEncoder().encode(JSON.stringify(metadata));
-        await destMetaFile.replace_contents_async(
+        await replaceContentsAsync(
+            destMetaFile,
             encodedMeta,
             null,
             false,
@@ -487,33 +600,36 @@ export class CrossSessionManager {
         } catch (_) {}
 
         // Clean up older wallpaper files for this user in shared directory and legacy /var/tmp
-        if (!metadataMatches) {
-            for (const dPath of [SHARED_DIR, LEGACY_SHARED_DIR]) {
-                const dir = Gio.File.new_for_path(dPath);
-                if (dir.query_exists(null)) {
-                    try {
-                        const enumerator = await dir.enumerate_children_async(
-                            'standard::name',
-                            Gio.FileQueryInfoFlags.NONE,
-                            GLib.PRIORITY_DEFAULT,
-                            null
-                        );
-                        let infos;
-                        while ((infos = await enumerator.next_files_async(10, GLib.PRIORITY_DEFAULT, null)) && infos.length > 0) {
-                            for (const info of infos) {
-                                const name = info.get_name();
-                                if (name.startsWith(`wack-shared-wallpaper-${userName}-`) &&
-                                    (name.endsWith('.jpg') || name.endsWith('.jpeg') || name.endsWith('.png')) &&
-                                    `${dPath}/${name}` !== targetPath) {
-                                    try {
-                                        const oldFile = Gio.File.new_for_path(`${dPath}/${name}`);
-                                        oldFile.delete(null);
-                                    } catch (_) {}
-                                }
+        const validPaths = new Set();
+        if (lightVariant?.target_path) validPaths.add(lightVariant.target_path);
+        if (darkVariant?.target_path) validPaths.add(darkVariant.target_path);
+
+        for (const dPath of [SHARED_DIR, LEGACY_SHARED_DIR]) {
+            const dir = Gio.File.new_for_path(dPath);
+            if (dir.query_exists(null)) {
+                try {
+                    const enumerator = await enumerateChildrenAsync(
+                        dir,
+                        'standard::name',
+                        Gio.FileQueryInfoFlags.NONE,
+                        GLib.PRIORITY_DEFAULT,
+                        null
+                    );
+                    let infos;
+                    while ((infos = await nextFilesAsync(enumerator, 10, GLib.PRIORITY_DEFAULT, null)) && infos.length > 0) {
+                        for (const info of infos) {
+                            const name = info.get_name();
+                            if (name.startsWith(`wack-shared-wallpaper-${userName}-`) &&
+                                (name.endsWith('.jpg') || name.endsWith('.jpeg') || name.endsWith('.png')) &&
+                                !validPaths.has(`${dPath}/${name}`)) {
+                                try {
+                                    const oldFile = Gio.File.new_for_path(`${dPath}/${name}`);
+                                    oldFile.delete(null);
+                                } catch (_) {}
                             }
                         }
-                    } catch (_) {}
-                }
+                    }
+                } catch (_) {}
             }
         }
 

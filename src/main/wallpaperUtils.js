@@ -41,84 +41,6 @@ export function getWallpaperFileInfo(filePath) {
     });
 }
 
-export function mapScreenToSourceCoords(x1, x2, y1, y2, Rw, Rs, pictureOptions, Ww, Wh, Sw, Sh) {
-    let mapFn;
-
-    if (pictureOptions === 'zoom') {
-        mapFn = (u, v) => {
-            let x_norm, y_norm;
-            if (Rw > Rs) {
-                x_norm = u * (Rs / Rw) + (1 - Rs / Rw) / 2;
-                y_norm = v;
-            } else {
-                x_norm = u;
-                y_norm = v * (Rw / Rs) + (1 - Rw / Rs) / 2;
-            }
-            return { x: x_norm, y: y_norm };
-        };
-    } else if (pictureOptions === 'scaled') {
-        mapFn = (u, v) => {
-            let x_norm, y_norm;
-            if (Rw > Rs) {
-                x_norm = u;
-                y_norm = v * (Rw / Rs) + (1 - Rw / Rs) / 2;
-            } else {
-                x_norm = u * (Rs / Rw) + (1 - Rs / Rw) / 2;
-                y_norm = v;
-            }
-            return {
-                x: Math.max(0.0, Math.min(1.0, x_norm)),
-                y: Math.max(0.0, Math.min(1.0, y_norm)),
-            };
-        };
-    } else if (pictureOptions === 'centered') {
-        mapFn = (u, v) => {
-            const x_norm = u * (Sw / Ww) + (1 - Sw / Ww) / 2;
-            const y_norm = v * (Sh / Wh) + (1 - Sh / Wh) / 2;
-            return {
-                x: Math.max(0.0, Math.min(1.0, x_norm)),
-                y: Math.max(0.0, Math.min(1.0, y_norm)),
-            };
-        };
-    } else if (pictureOptions === 'stretched') {
-        mapFn = (u, v) => {
-            return { x: u, y: v };
-        };
-    } else if (pictureOptions === 'wallpaper') {
-        // Tiled-at-native-size starting from the top-left of the screen
-        mapFn = (u, v) => {
-            const x_pixel = u * Sw;
-            const y_pixel = v * Sh;
-            const x_norm = Ww > 0 ? (x_pixel % Ww) / Ww : 0;
-            const y_norm = Wh > 0 ? (y_pixel % Wh) / Wh : 0;
-            return { x: x_norm, y: y_norm };
-        };
-    } else {
-        // Fallback for spanned (which spans across multiple monitors violating single monitor layout
-        // assumptions), none, or invalid settings - default to zoom math
-        mapFn = (u, v) => {
-            let x_norm, y_norm;
-            if (Rw > Rs) {
-                x_norm = u * (Rs / Rw) + (1 - Rs / Rw) / 2;
-                y_norm = v;
-            } else {
-                x_norm = u;
-                y_norm = v * (Rw / Rs) + (1 - Rw / Rs) / 2;
-            }
-            return { x: x_norm, y: y_norm };
-        };
-    }
-
-    const p1 = mapFn(x1, y1);
-    const p2 = mapFn(x2, y2);
-
-    return {
-        x1: Math.min(p1.x, p2.x),
-        x2: Math.max(p1.x, p2.x),
-        y1: Math.min(p1.y, p2.y),
-        y2: Math.max(p1.y, p2.y),
-    };
-}
 
 export function resolveSlideshowXml(xmlPath) {
     return new Promise((resolve) => {
@@ -303,17 +225,6 @@ export async function loadScaledWallpaperPixbuf(targetFilePath, width, height, p
     });
 }
 
-export function getPixbufSampleBounds(pixbuf, bounds) {
-    const width = pixbuf.get_width();
-    const height = pixbuf.get_height();
-
-    return {
-        startX: Math.max(0, Math.min(width, Math.floor(bounds.x1 * width))),
-        endX: Math.max(1, Math.min(width, Math.ceil(bounds.x2 * width))),
-        startY: Math.max(0, Math.min(height, Math.floor(bounds.y1 * height))),
-        endY: Math.max(1, Math.min(height, Math.ceil(bounds.y2 * height))),
-    };
-}
 
 /**
  * Normalizes screen bounding boxes for Prompt chip and all peripheral chrome buttons

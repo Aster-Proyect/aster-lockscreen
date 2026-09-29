@@ -8,10 +8,47 @@ import { getWallpaperAlpha, getWallpaperPromptColor } from '../main/alphaManager
 import { initCache } from '../main/alphaCache.js';
 import { resolveSlideshowXmlContent } from '../main/constants.js';
 import { resolveGdmAccessibleUri, _log, _logError } from './gdmUtils.js';
+function loadContentsAsync(file, cancellable = null) {
+    return new Promise((resolve, reject) => {
+        file.load_contents_async(cancellable, (f, res) => {
+            try {
+                const [success, contents, etag] = f.load_contents_finish(res);
+                if (success)
+                    resolve([contents, etag]);
+                else
+                    reject(new Error('Failed to load file contents'));
+            } catch (e) {
+                reject(e);
+            }
+        });
+    });
+}
 
-Gio._promisify(Gio.File.prototype, 'load_contents_async', 'load_contents_finish');
-Gio._promisify(Gio.File.prototype, 'enumerate_children_async', 'enumerate_children_finish');
-Gio._promisify(Gio.FileEnumerator.prototype, 'next_files_async', 'next_files_finish');
+function enumerateChildrenAsync(file, attributes, flags = Gio.FileQueryInfoFlags.NONE, ioPriority = GLib.PRIORITY_DEFAULT, cancellable = null) {
+    return new Promise((resolve, reject) => {
+        file.enumerate_children_async(attributes, flags, ioPriority, cancellable, (f, res) => {
+            try {
+                const enumerator = f.enumerate_children_finish(res);
+                resolve(enumerator);
+            } catch (e) {
+                reject(e);
+            }
+        });
+    });
+}
+
+function nextFilesAsync(enumerator, numFiles, ioPriority = GLib.PRIORITY_DEFAULT, cancellable = null) {
+    return new Promise((resolve, reject) => {
+        enumerator.next_files_async(numFiles, ioPriority, cancellable, (e, res) => {
+            try {
+                const files = e.next_files_finish(res);
+                resolve(files);
+            } catch (err) {
+                reject(err);
+            }
+        });
+    });
+}
 
 const SHARED_DIR = '/var/tmp/wack/shared';
 const LEGACY_SHARED_DIR = '/var/tmp';
@@ -48,6 +85,17 @@ export class GdmThemeStore {
             this._vibrancy = this._settings.get_string('prompt-vibrancy');
             this._requeueAll();
         }, this);
+
+        this._interfaceSettings = new Gio.Settings({ schema_id: 'org.gnome.desktop.interface' });
+        this._interfaceSettings.connectObject('changed::color-scheme', () => {
+            this._onColorSchemeChanged();
+        }, this);
+
+        try {
+            St.Settings.get().connectObject('notify::color-scheme', () => {
+                this._onColorSchemeChanged();
+            }, this);
+        } catch (_) {}
 
         const monitor = Main.layoutManager?.primaryMonitor;
         const monitorWidth = monitor ? monitor.width : 1920;
@@ -195,7 +243,7 @@ export class GdmThemeStore {
         let meta = null;
         let xmlText = null;
         try {
-            const [bytes] = await metaFile.load_contents_async(this._cancellable);
+            const [bytes] = await loadContentsAsync(metaFile, this._cancellable);
             meta = JSON.parse(new TextDecoder().decode(bytes));
             xmlText = await this._readSlideXml(meta);
         } catch (e) {
@@ -216,7 +264,61 @@ export class GdmThemeStore {
         return meta?.promptVibrancyMode ?? this._vibrancy;
     }
 
-    _install(userName, meta, xmlText) {
+    getColorScheme() {
+        return this._getColorScheme();
+    }
+
+    setColorScheme(scheme) {
+        try {
+            if (this._interfaceSettings && this._getColorScheme() !== scheme) {
+                this._interfaceSettings.set_enum('color-scheme', scheme);
+            }
+        } catch (_) {}
+    }
+
+    _getColorScheme() {
+        try {
+            if (this._interfaceSettings)
+                return this._interfaceSettings.get_enum('color-scheme');
+        } catch (_) {}
+        try {
+            const stScheme = St.Settings.get().color_scheme;
+            if (stScheme === St.SystemColorScheme.PREFER_DARK || stScheme === 1)
+                return 1;
+        } catch (_) {}
+        return 0;
+    }
+
+    _resolveVariant(rawMeta, colorScheme = null) {
+        if (!rawMeta)
+            return null;
+        const scheme = colorScheme ?? rawMeta.color_scheme ?? this._getColorScheme();
+        const variantKey = scheme === 1 ? 'dark' : 'light';
+        if (rawMeta.variants && rawMeta.variants[variantKey]) {
+            const v = rawMeta.variants[variantKey];
+            return {
+                ...rawMeta,
+                source_uri: v.source_uri ?? rawMeta.source_uri,
+                source_mtime: v.source_mtime ?? rawMeta.source_mtime,
+                source_size: v.source_size ?? rawMeta.source_size,
+                uri: v.uri ?? rawMeta.uri,
+                slideshow_xml_text: v.slideshow_xml_text ?? rawMeta.slideshow_xml_text,
+                resolved_slide_path: v.resolved_slide_path ?? rawMeta.resolved_slide_path,
+                resolved_slide_progress: v.resolved_slide_progress ?? rawMeta.resolved_slide_progress,
+                is_color: v.is_color ?? rawMeta.is_color,
+                clockAlpha: v.clockAlpha ?? null,
+                promptColor: v.promptColor ?? null,
+                active_color_scheme: scheme,
+            };
+        }
+        return {
+            ...rawMeta,
+            active_color_scheme: scheme,
+        };
+    }
+
+    _install(userName, rawMeta, xmlText, explicitColorScheme = null) {
+        const meta = this._resolveVariant(rawMeta, explicitColorScheme);
         const slide = this._resolveSlide(meta, xmlText);
         const image = this._imageKey(meta, slide);
         const userVibrancy = this._userVibrancy(meta);
@@ -243,6 +345,7 @@ export class GdmThemeStore {
         const theme = this._freeze({
             userName,
             meta,
+            rawMeta,
             xmlText,
             slide,          // null for static wallpapers
             image,          // the single image the palette is sampled from
@@ -362,12 +465,7 @@ export class GdmThemeStore {
         try {
             const meta = snapshot.meta;
             const layout = this._layout;
-            let sampleUri;
-            if (meta.source_uri && (meta.source_uri.endsWith('.xml') || meta.source_uri.endsWith('.xml.in'))) {
-                sampleUri = meta.source_uri.startsWith('file://') ? meta.source_uri : `file://${meta.source_uri}`;
-            } else {
-                sampleUri = resolveGdmAccessibleUri(meta) || snapshot.image || meta.uri;
-            }
+            const sampleUri = resolveGdmAccessibleUri(meta) || snapshot.image || meta.uri;
 
             const common = {
                 uri: sampleUri,
@@ -466,9 +564,29 @@ export class GdmThemeStore {
         for (const [name, theme] of this._themes) {
             if (theme.slide === null)
                 continue;
-            this._install(name, theme.meta, theme.xmlText);   // keeps the old palette until replaced
+            const raw = theme.rawMeta ?? theme.meta;
+            const currentScheme = theme.meta?.active_color_scheme ?? null;
+            this._install(name, raw, theme.xmlText, currentScheme);   // keeps the old palette until replaced
             const updated = this._themes.get(name);
             if (updated && this._isPaletteValid(updated)) {
+                this._onChanged(name);
+            }
+        }
+    }
+
+    _onColorSchemeChanged() {
+        this._fallback = this._buildFallbackTheme();
+        const explicitScheme = this._getColorScheme();
+        if (this._themes.size === 0) {
+            if (this._onChanged)
+                this._onChanged(null);
+            return;
+        }
+        for (const [name, theme] of this._themes) {
+            const raw = theme.rawMeta ?? theme.meta;
+            this._install(name, raw, theme.xmlText, explicitScheme);
+            const updated = this._themes.get(name);
+            if (updated && this._onChanged) {
                 this._onChanged(name);
             }
         }
@@ -490,11 +608,12 @@ export class GdmThemeStore {
                 continue;
             let enumerator = null;
             try {
-                enumerator = await dir.enumerate_children_async(
+                enumerator = await enumerateChildrenAsync(
+                    dir,
                     'standard::name,time::modified', Gio.FileQueryInfoFlags.NONE,
                     GLib.PRIORITY_LOW, this._cancellable);
                 for (;;) {
-                    const infos = await enumerator.next_files_async(32, GLib.PRIORITY_LOW, this._cancellable);
+                    const infos = await nextFilesAsync(enumerator, 32, GLib.PRIORITY_LOW, this._cancellable);
                     if (infos.length === 0)
                         break;
                     for (const info of infos) {
@@ -533,7 +652,7 @@ export class GdmThemeStore {
         if (!src || !(src.endsWith('.xml') || src.endsWith('.xml.in')))
             return null;
         const f = src.startsWith('file://') ? Gio.File.new_for_uri(src) : Gio.File.new_for_path(src);
-        const [bytes] = await f.load_contents_async(this._cancellable);
+        const [bytes] = await loadContentsAsync(f, this._cancellable);
         return new TextDecoder().decode(bytes);
     }
 
@@ -545,7 +664,7 @@ export class GdmThemeStore {
     _buildFallbackTheme() {
         // Built once from org.gnome.desktop.background. Not on any hot path.
         const bg = new Gio.Settings({ schema_id: 'org.gnome.desktop.background' });
-        const iface = new Gio.Settings({ schema_id: 'org.gnome.desktop.interface' });
+        const iface = this._interfaceSettings ?? new Gio.Settings({ schema_id: 'org.gnome.desktop.interface' });
         const dark = iface.get_enum('color-scheme') === 1;
         const style = bg.get_enum('picture-options');
         const uri = bg.get_string(dark ? 'picture-uri-dark' : 'picture-uri');
@@ -560,9 +679,10 @@ export class GdmThemeStore {
             dateStyle: 'full',
             clockAlpha: 0.6,
             lockscreenMode: 'cupertino',
+            active_color_scheme: dark ? 1 : 0,
         };
         return this._freeze({
-            userName: 'gdm', meta, xmlText: null, slide: null,
+            userName: 'gdm', meta, rawMeta: meta, xmlText: null, slide: null,
             image: uri, palette: null, clockAlpha: 0.6,
         });
     }
@@ -576,6 +696,13 @@ export class GdmThemeStore {
         }
         this._settings.disconnectObject(this);
         this._settings = null;
+        if (this._interfaceSettings) {
+            this._interfaceSettings.disconnectObject(this);
+            this._interfaceSettings = null;
+        }
+        try {
+            St.Settings.get().disconnectObject(this);
+        } catch (_) {}
         this._themes.clear();
         this._paletteCache.clear();
         this._pending = [];

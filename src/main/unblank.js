@@ -15,6 +15,7 @@ export class UnblankManager {
     constructor(extension) {
         this._extension = extension;
         this._settings = extension._settings;
+        this._sessionSettings = new Gio.Settings({ schema_id: 'org.gnome.desktop.session' });
         this._timerId = 0;
         this._lastOnBattery = null;
         this._upowerProxyChangedId = 0;
@@ -107,8 +108,10 @@ export class UnblankManager {
     _startTimer() {
         this._cancelTimer();
 
-        const sessionSettings = new Gio.Settings({ schema_id: 'org.gnome.desktop.session' });
-        const delay = sessionSettings.get_value('idle-delay').recursiveUnpack();
+        if (!this._sessionSettings)
+            return;
+
+        const delay = this._sessionSettings.get_value('idle-delay').recursiveUnpack();
         if (delay === 0)
             return; // "never blank" — nothing to do
 
@@ -155,5 +158,6 @@ export class UnblankManager {
         }
 
         this._upowerProxy = null;
+        this._sessionSettings = null;
     }
 }

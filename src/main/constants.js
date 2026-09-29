@@ -47,7 +47,6 @@ export const SESSION_BUTTON_HEIGHT = 34; // px
 export const SESSION_BUTTON_X_OFFSET = 0; // px
 export const SESSION_BUTTON_Y_OFFSET = 0; // px
 
-export const SETTINGS_SCHEMA = 'org.gnome.shell.extensions.wack-lockscreen-clock';
 
 // Individual notification card blur settings
 export const NOTIF_BLUR_RADIUS = 50;

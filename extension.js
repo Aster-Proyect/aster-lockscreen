@@ -35,7 +35,7 @@ import {
     SESSION_BUTTON_X_OFFSET,
     SESSION_BUTTON_Y_OFFSET,
 } from './src/main/constants.js';
-import { _log, _logError, _setActorVisible, PowerProfilesIface } from './src/main/mainUtils.js';
+import { _log, _logError, PowerProfilesIface } from './src/main/mainUtils.js';
 
 import { LockscreenMessageManager } from './src/main/lockscreenMessageManager.js';
 import { PromptStyling } from './src/main/promptStyling.js';
@@ -958,12 +958,7 @@ export default class WackLockscreenClockExtension extends Extension {
             this._injectionManager = null;
         }
 
-        if (this._authPromptAllocationId) {
-            if (authPrompt) {
-                authPrompt.disconnect(this._authPromptAllocationId);
-            }
-            this._authPromptAllocationId = 0;
-        }
+
 
         if (this._dialog) {
             if (this._dialog._notificationsBox) {

@@ -875,7 +875,7 @@ export class GdmManager {
     _updateLockscreenMessage(metadata = null) { this._messageManager.update(metadata); }
 
     _setPromptBackgroundBlur(active, animate = true) { this._wallpaperManager.setPromptBackgroundBlur(active, animate); }
-    _applyWallpaper(userName = null) { this._wallpaperManager.applyWallpaper(userName); }
+    _applyWallpaper(userName = null, animate = true, syncColorScheme = true) { this._wallpaperManager.applyWallpaper(userName, animate, syncColorScheme); }
 
     _positionClock(dialogBox = null) { this._clockManager.positionClock(dialogBox); }
     _positionUserList(dialogBox = null) { this._userListManager.positionUserList(dialogBox); }

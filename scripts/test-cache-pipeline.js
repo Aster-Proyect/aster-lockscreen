@@ -290,6 +290,405 @@ assert(cover219.targetW === 2560 && cover219.targetH === 1080, '21:9 image scale
 assert(cover219.visibleW === 1920 && cover219.visibleH === 1080, '21:9 visible viewport is 1920x1080');
 assert(cover219.visibleX === 320, '21:9 center-crop visibleX offset is 320px');
 
+// 9. Test Light/Dark Wallpaper Set Metadata & GDM Variant Resolution
+print('\n[9] Testing Light/Dark Wallpaper-Set & GDM Variant Resolution:');
+
+function resolveVariant(rawMeta, colorScheme) {
+    if (!rawMeta)
+        return null;
+    const variantKey = colorScheme === 1 ? 'dark' : 'light';
+    if (rawMeta.variants && rawMeta.variants[variantKey]) {
+        const v = rawMeta.variants[variantKey];
+        return {
+            ...rawMeta,
+            source_uri: v.source_uri ?? rawMeta.source_uri,
+            source_mtime: v.source_mtime ?? rawMeta.source_mtime,
+            source_size: v.source_size ?? rawMeta.source_size,
+            uri: v.uri ?? rawMeta.uri,
+            slideshow_xml_text: v.slideshow_xml_text ?? rawMeta.slideshow_xml_text,
+            resolved_slide_path: v.resolved_slide_path ?? rawMeta.resolved_slide_path,
+            resolved_slide_progress: v.resolved_slide_progress ?? rawMeta.resolved_slide_progress,
+            is_color: v.is_color ?? rawMeta.is_color,
+            clockAlpha: v.clockAlpha ?? null,
+            promptColor: v.promptColor ?? null,
+            active_color_scheme: colorScheme,
+        };
+    }
+    return {
+        ...rawMeta,
+        active_color_scheme: colorScheme,
+    };
+}
+
+const dualVariantMeta = {
+    username: 'rinzler',
+    color_scheme: 0,
+    source_uri: 'file:///usr/share/backgrounds/gnome/adwaita-l.jxl',
+    uri: 'file:///var/tmp/wack/shared/wack-shared-wallpaper-rinzler-light-1000.jpg',
+    clockAlpha: 0.65,
+    variants: {
+        light: {
+            source_uri: 'file:///usr/share/backgrounds/gnome/adwaita-l.jxl',
+            uri: 'file:///var/tmp/wack/shared/wack-shared-wallpaper-rinzler-light-1000.jpg',
+            clockAlpha: 0.65,
+            promptColor: {
+                r: 230, g: 230, b: 230, useInverse: true,
+                cancelColor: { r: 240, g: 240, b: 240 },
+                a11yColor: { r: 235, g: 235, b: 235 },
+                sessionColor: { r: 235, g: 235, b: 235 },
+                avatarColor: { r: 230, g: 230, b: 230 },
+            },
+        },
+        dark: {
+            source_uri: 'file:///usr/share/backgrounds/gnome/adwaita-d.jxl',
+            uri: 'file:///var/tmp/wack/shared/wack-shared-wallpaper-rinzler-dark-1000.jpg',
+            clockAlpha: 0.45,
+            promptColor: {
+                r: 35, g: 35, b: 40, useInverse: false,
+                cancelColor: { r: 45, g: 45, b: 50 },
+                a11yColor: { r: 40, g: 40, b: 45 },
+                sessionColor: { r: 40, g: 40, b: 45 },
+                avatarColor: { r: 35, g: 35, b: 40 },
+            },
+        },
+    },
+};
+
+// Test Light Appearance Selection & Chrome State
+const resolvedLight = resolveVariant(dualVariantMeta, 0);
+assert(resolvedLight.uri.includes('light-1000.jpg'), 'Resolved variant for color_scheme=0 picks light URI');
+assert(resolvedLight.clockAlpha === 0.65, 'Resolved light variant preserves light clockAlpha');
+assert(resolvedLight.promptColor.useInverse === true, 'Resolved light variant preserves light inverse styling');
+assert(resolvedLight.promptColor.cancelColor.r === 240, 'Resolved light variant has light cancel chrome color');
+assert(resolvedLight.promptColor.a11yColor.r === 235, 'Resolved light variant has light a11y chrome color');
+assert(resolvedLight.promptColor.sessionColor.r === 235, 'Resolved light variant has light session chrome color');
+
+// Test Dark Appearance Selection & Chrome State
+const resolvedDark = resolveVariant(dualVariantMeta, 1);
+assert(resolvedDark.uri.includes('dark-1000.jpg'), 'Resolved variant for color_scheme=1 picks dark URI');
+assert(resolvedDark.clockAlpha === 0.45, 'Resolved dark variant preserves dark clockAlpha');
+assert(resolvedDark.promptColor.useInverse === false, 'Resolved dark variant preserves dark non-inverse styling');
+assert(resolvedDark.promptColor.cancelColor.r === 45, 'Resolved dark variant has dark cancel chrome color');
+assert(resolvedDark.promptColor.a11yColor.r === 40, 'Resolved dark variant has dark a11y chrome color');
+assert(resolvedDark.promptColor.sessionColor.r === 40, 'Resolved dark variant has dark session chrome color');
+
+// Test Round-Trip Transition (Dark -> Light -> Dark) Coherence
+const roundTripLight = resolveVariant(dualVariantMeta, 0);
+assert(roundTripLight.promptColor.cancelColor.r === 240, 'Transition back to light restores light cancel chrome');
+assert(roundTripLight.promptColor.a11yColor.r === 235, 'Transition back to light restores light a11y chrome');
+
+const roundTripDark = resolveVariant(dualVariantMeta, 1);
+assert(roundTripDark.promptColor.cancelColor.r === 45, 'Transition back to dark restores dark cancel chrome');
+assert(roundTripDark.promptColor.a11yColor.r === 40, 'Transition back to dark restores dark a11y chrome');
+
+// Test Un-sampled Dark Variant Does Not Inherit Stale Light Chrome
+const unSampledDarkMeta = {
+    username: 'rinzler',
+    color_scheme: 0,
+    source_uri: 'file:///usr/share/backgrounds/gnome/adwaita-l.jxl',
+    uri: 'file:///var/tmp/wack/shared/wack-shared-wallpaper-rinzler-light-1000.jpg',
+    clockAlpha: 0.65,
+    promptColor: { r: 230, g: 230, b: 230, useInverse: true },
+    variants: {
+        light: {
+            source_uri: 'file:///usr/share/backgrounds/gnome/adwaita-l.jxl',
+            uri: 'file:///var/tmp/wack/shared/wack-shared-wallpaper-rinzler-light-1000.jpg',
+            clockAlpha: 0.65,
+            promptColor: { r: 230, g: 230, b: 230, useInverse: true },
+        },
+        dark: {
+            source_uri: 'file:///usr/share/backgrounds/gnome/adwaita-d.jxl',
+            uri: 'file:///var/tmp/wack/shared/wack-shared-wallpaper-rinzler-dark-1000.jpg',
+        },
+    },
+};
+
+const resolvedUnsampledDark = resolveVariant(unSampledDarkMeta, 1);
+assert(resolvedUnsampledDark.promptColor === null, 'Unsampled dark variant resolves promptColor as null instead of inheriting stale light color');
+assert(resolvedUnsampledDark.clockAlpha === null, 'Unsampled dark variant resolves clockAlpha as null instead of inheriting stale light alpha');
+
+// Test Cache Identity non-collision between Light and Dark
+const idLight = createClockAlphaIdentity({
+    targetUri: resolvedLight.uri,
+    mtime: 1000,
+    size: 500000,
+    isColor: false,
+    textLuminance: 1.0,
+});
+const idDark = createClockAlphaIdentity({
+    targetUri: resolvedDark.uri,
+    mtime: 1000,
+    size: 500000,
+    isColor: false,
+    textLuminance: 1.0,
+});
+assert(serializeClockAlphaIdentity(idLight) !== serializeClockAlphaIdentity(idDark), 'Light and Dark variant cache keys do not collide');
+
+// Test backward compatibility fallback for legacy metadata without variants
+const legacyMeta = {
+    username: 'legacyuser',
+    color_scheme: 0,
+    source_uri: 'file:///usr/share/backgrounds/old.jpg',
+    uri: 'file:///var/tmp/wack/shared/wack-shared-wallpaper-legacyuser-500.jpg',
+    clockAlpha: 0.6,
+};
+const resolvedLegacy = resolveVariant(legacyMeta, 1);
+assert(resolvedLegacy.uri === legacyMeta.uri, 'Legacy metadata without variants gracefully falls back to root fields');
+
+// 10. Test Last-Known Per-Account Light/Dark Continuity & GDM Quick Settings Alignment
+print('\n[10] Testing Last-Known Per-Account Light/Dark Continuity & GDM Quick Settings:');
+
+const defaultGdmScheme = 0; // GDM greeter default is Light
+
+function resolveVariantWithAccountHint(rawMeta, explicitColorScheme = null) {
+    if (!rawMeta)
+        return null;
+    const scheme = explicitColorScheme ?? rawMeta.color_scheme ?? defaultGdmScheme;
+    const variantKey = scheme === 1 ? 'dark' : 'light';
+    if (rawMeta.variants && rawMeta.variants[variantKey]) {
+        const v = rawMeta.variants[variantKey];
+        return {
+            ...rawMeta,
+            source_uri: v.source_uri ?? rawMeta.source_uri,
+            source_mtime: v.source_mtime ?? rawMeta.source_mtime,
+            source_size: v.source_size ?? rawMeta.source_size,
+            uri: v.uri ?? rawMeta.uri,
+            slideshow_xml_text: v.slideshow_xml_text ?? rawMeta.slideshow_xml_text,
+            resolved_slide_path: v.resolved_slide_path ?? rawMeta.resolved_slide_path,
+            resolved_slide_progress: v.resolved_slide_progress ?? rawMeta.resolved_slide_progress,
+            is_color: v.is_color ?? rawMeta.is_color,
+            clockAlpha: v.clockAlpha ?? null,
+            promptColor: v.promptColor ?? null,
+            active_color_scheme: scheme,
+        };
+    }
+    return {
+        ...rawMeta,
+        active_color_scheme: scheme,
+    };
+}
+
+const aliceMeta = {
+    username: 'alice',
+    color_scheme: 1, // Alice was last observed in Dark mode
+    variants: {
+        light: {
+            uri: 'file:///var/tmp/wack/shared/wack-shared-wallpaper-alice-light.jpg',
+            clockAlpha: 0.65,
+            promptColor: { r: 230, g: 230, b: 230, useInverse: true, cancelColor: { r: 230, g: 230, b: 230 } },
+        },
+        dark: {
+            uri: 'file:///var/tmp/wack/shared/wack-shared-wallpaper-alice-dark.jpg',
+            clockAlpha: 0.45,
+            promptColor: { r: 35, g: 35, b: 40, useInverse: false, cancelColor: { r: 35, g: 35, b: 40 } },
+        },
+    },
+};
+
+const bobMeta = {
+    username: 'bob',
+    color_scheme: 0, // Bob was last observed in Light mode
+    variants: {
+        light: {
+            uri: 'file:///var/tmp/wack/shared/wack-shared-wallpaper-bob-light.jpg',
+            clockAlpha: 0.60,
+            promptColor: { r: 240, g: 240, b: 240, useInverse: true, cancelColor: { r: 240, g: 240, b: 240 } },
+        },
+        dark: {
+            uri: 'file:///var/tmp/wack/shared/wack-shared-wallpaper-bob-dark.jpg',
+            clockAlpha: 0.50,
+            promptColor: { r: 30, g: 30, b: 35, useInverse: false, cancelColor: { r: 30, g: 30, b: 35 } },
+        },
+    },
+};
+
+const charlieMeta = {
+    username: 'charlie',
+    color_scheme: 1, // Charlie was last observed in Dark mode
+    variants: {
+        light: {
+            uri: 'file:///var/tmp/wack/shared/wack-shared-wallpaper-charlie-light.jpg',
+            clockAlpha: 0.60,
+            promptColor: { r: 235, g: 235, b: 235, useInverse: true, cancelColor: { r: 235, g: 235, b: 235 } },
+        },
+        dark: {
+            uri: 'file:///var/tmp/wack/shared/wack-shared-wallpaper-charlie-dark.jpg',
+            clockAlpha: 0.40,
+            promptColor: { r: 25, g: 25, b: 30, useInverse: false, cancelColor: { r: 25, g: 25, b: 30 } },
+        },
+    },
+};
+
+// Case A: Alice (Dark account) initializes to Dark variant without explicit GDM override
+const aliceDefault = resolveVariantWithAccountHint(aliceMeta);
+assert(aliceDefault.uri.includes('alice-dark.jpg'), 'Case A: Dark account (Alice) initializes to Dark variant');
+assert(aliceDefault.active_color_scheme === 1, 'Case A: Alice active_color_scheme is 1 (Dark)');
+assert(aliceDefault.clockAlpha === 0.45, 'Case A: Alice clockAlpha is 0.45');
+assert(aliceDefault.promptColor.useInverse === false, 'Case A: Alice promptColor is non-inverse');
+
+// Case B: Bob (Light account) initializes to Light variant without explicit GDM override
+const bobDefault = resolveVariantWithAccountHint(bobMeta);
+assert(bobDefault.uri.includes('bob-light.jpg'), 'Case B: Light account (Bob) initializes to Light variant');
+assert(bobDefault.active_color_scheme === 0, 'Case B: Bob active_color_scheme is 0 (Light)');
+assert(bobDefault.clockAlpha === 0.60, 'Case B: Bob clockAlpha is 0.60');
+assert(bobDefault.promptColor.useInverse === true, 'Case B: Bob promptColor is inverse');
+
+// Case C: Switching Alice -> Bob -> Alice does not leak account state
+const switchBob = resolveVariantWithAccountHint(bobMeta);
+assert(switchBob.active_color_scheme === 0, 'Case C: Bob remains Light after Alice');
+const switchAlice = resolveVariantWithAccountHint(aliceMeta);
+assert(switchAlice.active_color_scheme === 1, 'Case C: Alice remains Dark after Bob');
+
+// Case D: Missing color_scheme falls back to GDM greeter default
+const missingSchemeMeta = {
+    username: 'carol',
+    variants: {
+        light: { uri: 'file:///var/tmp/wack/shared/wack-shared-wallpaper-carol-light.jpg' },
+        dark: { uri: 'file:///var/tmp/wack/shared/wack-shared-wallpaper-carol-dark.jpg' },
+    },
+};
+const carolResolved = resolveVariantWithAccountHint(missingSchemeMeta);
+assert(carolResolved.active_color_scheme === defaultGdmScheme, 'Case D: Missing color_scheme falls back to GDM greeter default');
+assert(carolResolved.uri.includes('carol-light.jpg'), 'Case D: Resolves light variant for default greeter');
+
+// Case E: Explicit GDM Quick Settings Override (e.g. user manually toggled Light on GDM screen)
+const aliceGdmOverrideLight = resolveVariantWithAccountHint(aliceMeta, 0); // User forced Light at GDM
+assert(aliceGdmOverrideLight.active_color_scheme === 0, 'Case E: Explicit GDM Quick Settings override (0) overrides Alice hint');
+assert(aliceGdmOverrideLight.uri.includes('alice-light.jpg'), 'Case E: Alice resolves to Light variant under explicit GDM override');
+
+const bobGdmOverrideDark = resolveVariantWithAccountHint(bobMeta, 1); // User forced Dark at GDM
+assert(bobGdmOverrideDark.active_color_scheme === 1, 'Case E: Explicit GDM Quick Settings override (1) overrides Bob hint');
+assert(bobGdmOverrideDark.uri.includes('bob-dark.jpg'), 'Case E: Bob resolves to Dark variant under explicit GDM override');
+
+// Case F: GDM Quick Settings Appearance Alignment & Account Switch Lifecycle
+class MockGdmInterfaceSettings {
+    constructor(initialScheme = 0) {
+        this._scheme = initialScheme;
+    }
+    get_enum(key) {
+        if (key === 'color-scheme')
+            return this._scheme;
+        return 0;
+    }
+    set_enum(key, val) {
+        if (key === 'color-scheme')
+            this._scheme = val;
+    }
+}
+
+class MockGdmThemePipeline {
+    constructor(initialScheme = 0) {
+        this.settings = new MockGdmInterfaceSettings(initialScheme);
+        this.themes = new Map();
+        this.presentedTheme = null;
+        this.presentedUser = null;
+    }
+
+    loadUser(rawMeta) {
+        const theme = {
+            userName: rawMeta.username,
+            rawMeta,
+            meta: resolveVariantWithAccountHint(rawMeta, this.getColorScheme()),
+        };
+        this.themes.set(rawMeta.username, theme);
+    }
+
+    getColorScheme() {
+        return this.settings.get_enum('color-scheme');
+    }
+
+    setColorScheme(scheme) {
+        if (this.getColorScheme() !== scheme) {
+            this.settings.set_enum('color-scheme', scheme);
+            this._onColorSchemeChanged();
+        }
+    }
+
+    peek(userName) {
+        return this.themes.get(userName) ?? null;
+    }
+
+    _onColorSchemeChanged() {
+        const scheme = this.getColorScheme();
+        for (const [, theme] of this.themes) {
+            theme.meta = resolveVariantWithAccountHint(theme.rawMeta, scheme);
+        }
+        if (this.presentedUser) {
+            this.applyWallpaper(this.presentedUser, false, false);
+        }
+    }
+
+    manualToggleQuickSettings(newScheme) {
+        this.setColorScheme(newScheme);
+    }
+
+    applyWallpaper(userName, animate = true, syncColorScheme = true) {
+        let theme = this.peek(userName);
+        if (!theme)
+            return;
+
+        if (syncColorScheme) {
+            const raw = theme.rawMeta ?? theme.meta;
+            const targetScheme = raw?.color_scheme ?? theme.meta?.active_color_scheme;
+            if (targetScheme !== undefined && this.getColorScheme() !== targetScheme) {
+                this.setColorScheme(targetScheme);
+                const updated = this.peek(userName);
+                if (updated)
+                    theme = updated;
+            }
+        }
+
+        this.presentedUser = userName;
+        this.presentedTheme = theme;
+    }
+}
+
+// 1. Remembered Dark account initializes GDM QS state to Dark
+const gdmPipeline = new MockGdmThemePipeline(0); // Starts at default Light (0)
+gdmPipeline.loadUser(aliceMeta);
+gdmPipeline.loadUser(bobMeta);
+gdmPipeline.applyWallpaper('alice', false, true);
+assert(gdmPipeline.getColorScheme() === 1, 'Lifecycle: Remembered Dark account sets GDM QS state to Dark (1)');
+assert(gdmPipeline.presentedTheme.meta.active_color_scheme === 1, 'Lifecycle: Remembered Dark account presents Dark active_color_scheme');
+assert(gdmPipeline.presentedTheme.meta.uri.includes('alice-dark.jpg'), 'Lifecycle: Remembered Dark account presents Dark wallpaper');
+
+// 2. Remembered Light account initializes GDM QS state to Light
+const gdmPipelineLight = new MockGdmThemePipeline(1); // Starts at Dark (1)
+gdmPipelineLight.loadUser(bobMeta);
+gdmPipelineLight.applyWallpaper('bob', false, true);
+assert(gdmPipelineLight.getColorScheme() === 0, 'Lifecycle: Remembered Light account sets GDM QS state to Light (0)');
+assert(gdmPipelineLight.presentedTheme.meta.active_color_scheme === 0, 'Lifecycle: Remembered Light account presents Light active_color_scheme');
+assert(gdmPipelineLight.presentedTheme.meta.uri.includes('bob-light.jpg'), 'Lifecycle: Remembered Light account presents Light wallpaper');
+
+// 3. Switching Account A (Dark) -> Account B (Light): QS follows B
+gdmPipeline.applyWallpaper('bob', true, true);
+assert(gdmPipeline.getColorScheme() === 0, 'Lifecycle: Account A Dark -> Account B Light: QS follows B (0)');
+assert(gdmPipeline.presentedTheme.meta.active_color_scheme === 0, 'Lifecycle: Account B presents Light active_color_scheme');
+assert(gdmPipeline.presentedTheme.meta.uri.includes('bob-light.jpg'), 'Lifecycle: Account B presents Light wallpaper');
+
+// 4. Account A Dark -> manual GDM toggle to Light -> wallpaper/QS remain Light
+gdmPipeline.applyWallpaper('alice', true, true);
+assert(gdmPipeline.getColorScheme() === 1, 'Lifecycle: Switching back to Alice restores Dark QS (1)');
+assert(gdmPipeline.presentedTheme.meta.uri.includes('alice-dark.jpg'), 'Lifecycle: Alice presents Dark wallpaper');
+assert(gdmPipeline.presentedTheme.meta.promptColor.useInverse === false, 'Lifecycle: Alice presents Dark non-inverse vibrancy before toggle');
+gdmPipeline.manualToggleQuickSettings(0); // User manually clicks Light on GDM QS toggle
+assert(gdmPipeline.getColorScheme() === 0, 'Lifecycle: Manual GDM QS toggle updates GDM QS to Light (0)');
+assert(gdmPipeline.presentedTheme.meta.active_color_scheme === 0, 'Lifecycle: Manual GDM QS toggle updates presented wallpaper to Light');
+assert(gdmPipeline.presentedTheme.meta.uri.includes('alice-light.jpg'), 'Lifecycle: Alice presents Light wallpaper after manual toggle');
+assert(gdmPipeline.presentedTheme.meta.promptColor.useInverse === true, 'Lifecycle: Alice presents Light inverse vibrancy after manual toggle');
+assert(gdmPipeline.presentedTheme.meta.promptColor.cancelColor.r === 230, 'Lifecycle: Alice presents Light cancel chrome after manual toggle');
+assert(gdmPipeline.presentedTheme.meta.clockAlpha === 0.65, 'Lifecycle: Alice presents Light clockAlpha after manual toggle');
+
+// 5. Manual override -> switching to another account -> selected account remembered state is restored
+gdmPipeline.loadUser(charlieMeta);
+gdmPipeline.applyWallpaper('charlie', true, true); // Charlie remembered as Dark (1)
+assert(gdmPipeline.getColorScheme() === 1, 'Lifecycle: Account switch after manual override restores Charlie remembered Dark QS (1)');
+assert(gdmPipeline.presentedTheme.meta.active_color_scheme === 1, 'Lifecycle: Charlie presents Dark active_color_scheme');
+assert(gdmPipeline.presentedTheme.meta.uri.includes('charlie-dark.jpg'), 'Lifecycle: Charlie presents Dark wallpaper');
+assert(gdmPipeline.presentedTheme.meta.promptColor.useInverse === false, 'Lifecycle: Charlie presents Dark non-inverse vibrancy');
+assert(gdmPipeline.presentedTheme.meta.promptColor.cancelColor.r === 25, 'Lifecycle: Charlie presents Dark cancel chrome');
+assert(gdmPipeline.presentedTheme.meta.clockAlpha === 0.40, 'Lifecycle: Charlie presents Dark clockAlpha');
+
 print(`\n========================================`);
 print(`Test Results: ${passed} Passed, ${failed} Failed`);
 print(`========================================\n`);

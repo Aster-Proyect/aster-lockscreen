@@ -27,8 +27,8 @@ export class GdmWallpaperManager {
         this.themeStore = new GdmThemeStore(this._gdm._extension, (userName) => {
             const activeUser = this._gdm._dialog?._user?.get_user_name() ?? null;
             const effectiveUser = activeUser ?? this.themeStore._defaultUser;
-            if (userName === effectiveUser || (activeUser === null && userName === this.themeStore._defaultUser)) {
-                this.applyWallpaper(activeUser, true);
+            if (userName === null || userName === effectiveUser || (activeUser === null && userName === this.themeStore._defaultUser)) {
+                this.applyWallpaper(activeUser, true, false);
             }
         });
 
@@ -47,7 +47,7 @@ export class GdmWallpaperManager {
                 this.view.warm(theme);
             }
             const activeUser = this._gdm._dialog?._user?.get_user_name() ?? null;
-            this.applyWallpaper(activeUser, false);
+            this.applyWallpaper(activeUser, false, true);
         }
     }
 
@@ -134,13 +134,24 @@ export class GdmWallpaperManager {
         }
     }
 
-    applyWallpaper(requestedUserName = null, animate = true) {
+    applyWallpaper(requestedUserName = null, animate = true, syncColorScheme = true) {
         if (!this.themeStore || !this.view)
             return;
 
-        const theme = this.themeStore.peek(requestedUserName);
+        let theme = this.themeStore.peek(requestedUserName);
         if (!theme)
             return;
+
+        if (syncColorScheme) {
+            const raw = theme.rawMeta ?? theme.meta;
+            const targetScheme = raw?.color_scheme ?? theme.meta?.active_color_scheme;
+            if (targetScheme !== undefined && this.themeStore.getColorScheme() !== targetScheme) {
+                this.themeStore.setColorScheme(targetScheme);
+                const updated = this.themeStore.peek(requestedUserName);
+                if (updated)
+                    theme = updated;
+            }
+        }
 
         this._gdm._currentWallpaperMetadata = theme.meta;
         this.currentWallpaperMetadata = theme.meta;

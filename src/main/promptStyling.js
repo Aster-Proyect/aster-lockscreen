@@ -2,7 +2,7 @@ import GLib from 'gi://GLib';
 import Clutter from 'gi://Clutter';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import { _log, _logError } from './mainUtils.js';
-import { getChromeAlpha, getPromptMessageStyle, getHintTextStyle, getPromptDimVeilAlpha } from './colorUtils.js';
+import { getChromeAlpha, getHintTextStyle, getPromptDimVeilAlpha } from './colorUtils.js';
 
 export class PromptStyling {
     constructor(extension) {
@@ -10,6 +10,7 @@ export class PromptStyling {
         this.cursorBlinkTimeoutId = null;
         this.lastWellH = undefined;
         this.lastYCenterFraction = undefined;
+        this.lastPromptBounds = null;
         this._lastPromptColor = null;
         this._lastClockAlpha = null;
     }
@@ -543,10 +544,6 @@ export class PromptStyling {
     applyCancelButtonBackground(button, color) {
         const isCupertino = this._extension?._lockscreenMode === 'cupertino';
         this._setupChromeButton(button, isCupertino ? color : null, 'cancel');
-    }
-
-    updateCancelButtonStyle(button) {
-        this._updateChromeButtonStyle(button, 'cancel');
     }
 
     applyA11yButtonBackground(button, color) {

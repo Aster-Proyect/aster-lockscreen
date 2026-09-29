@@ -22,6 +22,7 @@ export class CupertinoPromptManager {
         this.hintIsToggle = false;
         this.baseHintText = '';
         this.toggleHintText = '';
+        this._authPromptAllocationId = 0;
     }
 
     triggerSwitchUser() {
@@ -435,8 +436,8 @@ export class CupertinoPromptManager {
             promptActor.y_align = Clutter.ActorAlign.FILL;
             promptActor.y_expand = true;
 
-            if (authPrompt && !this._extension._authPromptAllocationId) {
-                this._extension._authPromptAllocationId = authPrompt.connect('notify::allocation', () => {
+            if (authPrompt && !this._authPromptAllocationId) {
+                this._authPromptAllocationId = authPrompt.connect('notify::allocation', () => {
                     this._extension._onAuthPromptAllocation();
                 });
             }
@@ -464,11 +465,11 @@ export class CupertinoPromptManager {
                 this._extension._origPromptActorYExpand = undefined;
             }
 
-            if (this._extension._authPromptAllocationId) {
+            if (this._authPromptAllocationId) {
                 if (authPrompt) {
-                    authPrompt.disconnect(this._extension._authPromptAllocationId);
+                    authPrompt.disconnect(this._authPromptAllocationId);
                 }
-                this._extension._authPromptAllocationId = 0;
+                this._authPromptAllocationId = 0;
             }
 
             promptActor.remove_style_class_name('wack-cupertino-prompt');
@@ -499,6 +500,14 @@ export class CupertinoPromptManager {
         if (this.inhibitHintTimeoutId) {
             GLib.source_remove(this.inhibitHintTimeoutId);
             this.inhibitHintTimeoutId = null;
+        }
+        if (this._authPromptAllocationId) {
+            const dialog = this._extension._dialog;
+            const authPrompt = dialog?._authPrompt ?? dialog?._promptBox?._authPrompt;
+            if (authPrompt) {
+                authPrompt.disconnect(this._authPromptAllocationId);
+            }
+            this._authPromptAllocationId = 0;
         }
         this.destroyCupertinoRestPrompt();
     }
