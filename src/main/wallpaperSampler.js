@@ -3,10 +3,13 @@ import GLib from 'gi://GLib';
 import { _logError } from './mainUtils.js';
 import {
     resolvePromptVisualState,
+    applyPromptVisualState,
     getPromptDarkenedHueColor,
+    parseHexColor,
+    rgbToHsl,
+    hslToRgb,
     PROMPT_SHADOW_FLOOR,
     CUPERTINO_PROMPT_WHITE_BLEND_ALPHA,
-    clamp01,
     clamp255,
 } from './colorUtils.js';
 
@@ -399,6 +402,336 @@ export function sampleRegionAverageColor(srcPixbuf, bounds) {
         g: clamp255(sumG / samples),
         b: clamp255(sumB / samples),
         noise: Math.max(0.0, noise),
+    };
+}
+
+/**
+ * Samples the clock region (upper center) of a wallpaper pixbuf for average RGB and local noise.
+ *
+ * @param {GdkPixbuf.Pixbuf} pixbuf Source wallpaper pixbuf
+ * @param {string} pictureOptions Picture sizing option ('zoom', 'spanned', etc.)
+ * @param {object|null} monitor Monitor geometry { width, height }
+ * @returns {{bgR: number, bgG: number, bgB: number, bgNoise: number}}
+ */
+export function sampleClockRegionLuminance(pixbuf, pictureOptions = 'zoom', monitor = null) {
+    if (!pixbuf)
+        return { bgR: 40, bgG: 40, bgB: 40, bgNoise: 0.0 };
+
+    const pbWidth = pixbuf.get_width();
+    const pbHeight = pixbuf.get_height();
+    const pixels = pixbuf.get_pixels();
+    const channels = pixbuf.get_n_channels();
+    const rowstride = pixbuf.get_rowstride();
+
+    const monitorWidth = monitor?.width ?? 1920;
+    const monitorHeight = monitor?.height ?? 1080;
+    const monitorAspect = monitorWidth / monitorHeight;
+    const pbAspect = pbWidth / pbHeight;
+
+    let visibleX = 0, visibleY = 0, visibleW = pbWidth, visibleH = pbHeight;
+
+    if (pictureOptions === 'zoom' || pictureOptions === 'spanned') {
+        if (pbAspect > monitorAspect) {
+            visibleW = pbHeight * monitorAspect;
+            visibleX = (pbWidth - visibleW) / 2;
+        } else if (pbAspect < monitorAspect) {
+            visibleH = pbWidth / monitorAspect;
+            visibleY = (pbHeight - visibleH) / 2;
+        }
+    }
+
+    const xStart = Math.max(0, Math.min(pbWidth - 1, Math.round(visibleX + visibleW * 0.25)));
+    const xEnd = Math.max(1, Math.min(pbWidth, Math.round(visibleX + visibleW * 0.75)));
+    const yStart = Math.max(0, Math.min(pbHeight - 1, Math.round(visibleY + visibleH * 0.05)));
+    const yEnd = Math.max(1, Math.min(pbHeight, Math.round(visibleY + visibleH * 0.35)));
+
+    let rSum = 0, gSum = 0, bSum = 0;
+    let diffSum = 0;
+    let count = 0;
+    let diffCount = 0;
+
+    for (let y = yStart; y < yEnd; y++) {
+        for (let x = xStart; x < xEnd; x++) {
+            const offset = y * rowstride + x * channels;
+            const r = pixels[offset];
+            const g = pixels[offset + 1];
+            const b = pixels[offset + 2];
+
+            rSum += r;
+            gSum += g;
+            bSum += b;
+            count++;
+
+            if (x < xEnd - 1 && y < yEnd - 1) {
+                const offsetRight = y * rowstride + (x + 1) * channels;
+                const offsetDown = (y + 1) * rowstride + x * channels;
+
+                const rR = pixels[offsetRight], gR = pixels[offsetRight + 1], bR = pixels[offsetRight + 2];
+                const rD = pixels[offsetDown], gD = pixels[offsetDown + 1], bD = pixels[offsetDown + 2];
+
+                const lum = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255.0;
+                const lumR = (0.2126 * rR + 0.7152 * gR + 0.0722 * bR) / 255.0;
+                const lumD = (0.2126 * rD + 0.7152 * gD + 0.0722 * bD) / 255.0;
+
+                diffSum += (Math.abs(lum - lumR) + Math.abs(lum - lumD)) / 2.0;
+                diffCount++;
+            }
+        }
+    }
+
+    let bgR = 40, bgG = 40, bgB = 40;
+    let bgNoise = 0.0;
+
+    if (count > 0) {
+        bgR = rSum / count;
+        bgG = gSum / count;
+        bgB = bSum / count;
+    }
+
+    if (diffCount > 0) {
+        bgNoise = diffSum / diffCount;
+    }
+
+    return { bgR, bgG, bgB, bgNoise };
+}
+
+/**
+ * Computes sampled colors and visual state for solid colors and gradients (shadingType 0, 1, 2)
+ * across Prompt chip, Cancel button, Avatar, A11y, and Session buttons.
+ *
+ * @param {object} params
+ * @param {string} params.primaryColor Hex primary color string
+ * @param {string} params.secondaryColor Hex secondary color string
+ * @param {number} params.shadingType Shading type (0: solid, 1: vertical gradient, 2: horizontal gradient)
+ * @param {object} params.normBounds Normalized bounds object { prompt, cancel, avatar, a11y, session }
+ * @param {number} [params.whiteBlendAlpha] White overlay blend factor
+ * @returns {{
+ *   sampledStart: object,
+ *   sampledEnd: object,
+ *   sampledPrimary: object,
+ *   sampledCancelColor: object,
+ *   sampledAvatarColor: object,
+ *   sampledA11yColor: object,
+ *   sampledSessionColor: object,
+ *   promptVisualState: object,
+ *   shadowAlpha: number,
+ *   direction: string
+ * }}
+ */
+export function sampleSolidGradientPromptColors({
+    primaryColor,
+    secondaryColor,
+    shadingType,
+    normBounds,
+    whiteBlendAlpha = CUPERTINO_PROMPT_WHITE_BLEND_ALPHA,
+}) {
+    const { prompt, cancel, a11y, session } = normBounds;
+    const c1 = parseHexColor(primaryColor);
+    const c2 = parseHexColor(secondaryColor);
+
+    let sampledStart = null;
+    let sampledEnd = null;
+    let sampledPrimary = null;
+    let direction = 'vertical';
+
+    if (shadingType === 0) {
+        const hsl = rgbToHsl(c1.r, c1.g, c1.b);
+        const specularL = Math.min(1.0, hsl.l + 0.05);
+        sampledStart = hslToRgb(hsl.h, hsl.s, specularL);
+        sampledEnd = { ...c1 };
+        sampledPrimary = { ...c1 };
+    } else if (shadingType === 1) {
+        const y1 = prompt.y1;
+        const y2 = prompt.y2;
+        const yt = (prompt.y1 + prompt.y2) / 2;
+        sampledStart = {
+            r: Math.round(c1.r + (c2.r - c1.r) * y1),
+            g: Math.round(c1.g + (c2.g - c1.g) * y1),
+            b: Math.round(c1.b + (c2.b - c1.b) * y1),
+        };
+        sampledEnd = {
+            r: Math.round(c1.r + (c2.r - c1.r) * y2),
+            g: Math.round(c1.g + (c2.g - c1.g) * y2),
+            b: Math.round(c1.b + (c2.b - c1.b) * y2),
+        };
+        sampledPrimary = {
+            r: Math.round(c1.r + (c2.r - c1.r) * yt),
+            g: Math.round(c1.g + (c2.g - c1.g) * yt),
+            b: Math.round(c1.b + (c2.b - c1.b) * yt),
+        };
+    } else {
+        direction = 'horizontal';
+        const x1 = prompt.x1;
+        const x2 = prompt.x2;
+        const xt = (prompt.x1 + prompt.x2) / 2;
+        sampledStart = {
+            r: Math.round(c1.r + (c2.r - c1.r) * x1),
+            g: Math.round(c1.g + (c2.g - c1.g) * x1),
+            b: Math.round(c1.b + (c2.b - c1.b) * x1),
+        };
+        sampledEnd = {
+            r: Math.round(c1.r + (c2.r - c1.r) * x2),
+            g: Math.round(c1.g + (c2.g - c1.g) * x2),
+            b: Math.round(c1.b + (c2.b - c1.b) * x2),
+        };
+        sampledPrimary = {
+            r: Math.round(c1.r + (c2.r - c1.r) * xt),
+            g: Math.round(c1.g + (c2.g - c1.g) * xt),
+            b: Math.round(c1.b + (c2.b - c1.b) * xt),
+        };
+    }
+
+    const promptVisualState = resolvePromptVisualState(sampledPrimary, whiteBlendAlpha);
+    const shadowAlpha = promptVisualState.shadowAlpha;
+
+    sampledStart = applyPromptVisualState(sampledStart, promptVisualState, { preblend: true });
+    sampledEnd = applyPromptVisualState(sampledEnd, promptVisualState, { preblend: true });
+    sampledPrimary = applyPromptVisualState(sampledPrimary, promptVisualState, { preblend: true });
+    const sampledAvatarColor = applyPromptVisualState(
+        { r: sampledPrimary.rawR, g: sampledPrimary.rawG, b: sampledPrimary.rawB },
+        promptVisualState,
+        { preblend: true }
+    );
+
+    let rawCancel;
+    let rawA11y;
+    let rawSession;
+    if (shadingType === 0) {
+        rawCancel = { ...c1 };
+        rawA11y = { ...c1 };
+        rawSession = { ...c1 };
+    } else if (shadingType === 1) {
+        const ytCancel = (cancel.y1 + cancel.y2) / 2;
+        rawCancel = {
+            r: Math.round(c1.r + (c2.r - c1.r) * ytCancel),
+            g: Math.round(c1.g + (c2.g - c1.g) * ytCancel),
+            b: Math.round(c1.b + (c2.b - c1.b) * ytCancel),
+        };
+        const ytA11y = (a11y.y1 + a11y.y2) / 2;
+        rawA11y = {
+            r: Math.round(c1.r + (c2.r - c1.r) * ytA11y),
+            g: Math.round(c1.g + (c2.g - c1.g) * ytA11y),
+            b: Math.round(c1.b + (c2.b - c1.b) * ytA11y),
+        };
+        const ytSess = (session.y1 + session.y2) / 2;
+        rawSession = {
+            r: Math.round(c1.r + (c2.r - c1.r) * ytSess),
+            g: Math.round(c1.g + (c2.g - c1.g) * ytSess),
+            b: Math.round(c1.b + (c2.b - c1.b) * ytSess),
+        };
+    } else {
+        const xtCancel = (cancel.x1 + cancel.x2) / 2;
+        rawCancel = {
+            r: Math.round(c1.r + (c2.r - c1.r) * xtCancel),
+            g: Math.round(c1.g + (c2.g - c1.g) * xtCancel),
+            b: Math.round(c1.b + (c2.b - c1.b) * xtCancel),
+        };
+        const xtA11y = (a11y.x1 + a11y.x2) / 2;
+        rawA11y = {
+            r: Math.round(c1.r + (c2.r - c1.r) * xtA11y),
+            g: Math.round(c1.g + (c2.g - c1.g) * xtA11y),
+            b: Math.round(c1.b + (c2.b - c1.b) * xtA11y),
+        };
+        const xtSess = (session.x1 + session.x2) / 2;
+        rawSession = {
+            r: Math.round(c1.r + (c2.r - c1.r) * xtSess),
+            g: Math.round(c1.g + (c2.g - c1.g) * xtSess),
+            b: Math.round(c1.b + (c2.b - c1.b) * xtSess),
+        };
+    }
+
+    const sampledCancelColor = applyPromptVisualState(
+        rawCancel,
+        promptVisualState,
+        { preblend: true }
+    );
+    const sampledA11yColor = applyPromptVisualState(
+        rawA11y,
+        resolvePromptVisualState(rawA11y, whiteBlendAlpha),
+        { preblend: true }
+    );
+    const sampledSessionColor = applyPromptVisualState(
+        rawSession,
+        resolvePromptVisualState(rawSession, whiteBlendAlpha),
+        { preblend: true }
+    );
+
+    return {
+        sampledStart,
+        sampledEnd,
+        sampledPrimary,
+        sampledCancelColor,
+        sampledAvatarColor,
+        sampledA11yColor,
+        sampledSessionColor,
+        promptVisualState,
+        shadowAlpha,
+        direction,
+    };
+}
+
+/**
+ * Samples wallpaper region average colors and applies visual state for chrome buttons (Cancel, Avatar, A11y, Session).
+ *
+ * @param {object} params
+ * @param {GdkPixbuf.Pixbuf} params.pixbuf Loaded wallpaper pixbuf
+ * @param {object} params.mappedBoundsMap Map of normalized bounds relative to pixbuf { cancel, avatar, a11y, session }
+ * @param {object|null} params.promptVisualState Visual state to apply (or derive for buttons)
+ * @param {object|null} [params.fallbackPrimaryColor] Fallback color if sample fails
+ * @param {number} [params.whiteBlendAlpha] White overlay blend factor
+ * @returns {{
+ *   cancelColor: object|null,
+ *   avatarColor: object,
+ *   a11yColor: object,
+ *   sessionColor: object,
+ *   effectivePromptVisualState: object
+ * }}
+ */
+export function sampleWallpaperChromeColors({
+    pixbuf,
+    mappedBoundsMap,
+    promptVisualState,
+    fallbackPrimaryColor = null,
+    whiteBlendAlpha = CUPERTINO_PROMPT_WHITE_BLEND_ALPHA,
+}) {
+    const { cancel: cancelMappedBounds, avatar: avatarMappedBounds, a11y: a11yMappedBounds, session: sessionMappedBounds } = mappedBoundsMap;
+
+    const fallback = fallbackPrimaryColor || { r: 40, g: 40, b: 40 };
+
+    // 1. Cancel
+    let sampledCancelColor = null;
+    if (cancelMappedBounds) {
+        const rawCancel = sampleRegionAverageColor(pixbuf, cancelMappedBounds) || fallback;
+        sampledCancelColor = applyPromptVisualState(rawCancel, promptVisualState, { preblend: true });
+    }
+
+    // 2. Avatar
+    const rawAvatar = (avatarMappedBounds ? sampleRegionAverageColor(pixbuf, avatarMappedBounds) : null) || fallback;
+    const effectivePromptVisualState = promptVisualState ?? resolvePromptVisualState(rawAvatar, whiteBlendAlpha);
+    const sampledAvatarColor = applyPromptVisualState(rawAvatar, effectivePromptVisualState, { preblend: true });
+
+    // 3. A11y
+    const rawA11y = (a11yMappedBounds ? sampleRegionAverageColor(pixbuf, a11yMappedBounds) : null) || fallback;
+    const sampledA11yColor = applyPromptVisualState(
+        rawA11y,
+        resolvePromptVisualState(rawA11y, whiteBlendAlpha),
+        { preblend: true }
+    );
+
+    // 4. Session
+    const rawSession = (sessionMappedBounds ? sampleRegionAverageColor(pixbuf, sessionMappedBounds) : null) || fallback;
+    const sampledSessionColor = applyPromptVisualState(
+        rawSession,
+        resolvePromptVisualState(rawSession, whiteBlendAlpha),
+        { preblend: true }
+    );
+
+    return {
+        cancelColor: sampledCancelColor,
+        avatarColor: sampledAvatarColor,
+        a11yColor: sampledA11yColor,
+        sessionColor: sampledSessionColor,
+        effectivePromptVisualState,
     };
 }
 

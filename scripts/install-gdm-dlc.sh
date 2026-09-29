@@ -144,7 +144,7 @@ for pro_file in "${PRO_FILES[@]}"; do
     fi
 done
 
-for file in "crossSessionManager.js" "extension.js" "prefs.js"; do
+for file in "crossSessionManager.js" "extension.js" "prefs.js" "src/prefs/prefsUtils.js" "src/prefs/groups/extrasGroup.js"; do
     USE_LOCAL=false
     if [ -f "$SRC_DIR/$file" ]; then
         if [ "$file" = "crossSessionManager.js" ]; then
@@ -156,10 +156,11 @@ for file in "crossSessionManager.js" "extension.js" "prefs.js"; do
         fi
     fi
 
+    mkdir -p "$(dirname "$TARGET_DIR/$file")"
     if [ "$USE_LOCAL" = true ]; then
         if [ "$SRC_DIR" != "$TARGET_DIR" ]; then
             echo "   Copying local $file..."
-            cp "$SRC_DIR/$file" "$TARGET_DIR/"
+            cp "$SRC_DIR/$file" "$TARGET_DIR/$file"
         else
             echo "   Local $file already in target directory."
         fi

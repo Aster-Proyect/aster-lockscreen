@@ -67,7 +67,7 @@ echo "-> Cleaning up GDM hooks from user-level extension..."
 rm -f "$USER_DIR/pro.js"
 rm -f "$USER_DIR/crossSessionManager.js"
 rm -rf "$USER_DIR/src/pro"
-for file in "extension.js" "prefs.js"; do
+for file in "extension.js" "prefs.js" "src/prefs/prefsUtils.js" "src/prefs/groups/extrasGroup.js"; do
     if [ -f "$USER_DIR/$file" ]; then
         python3 -c "import re; c=open('$USER_DIR/$file').read(); c=re.sub(r'//\s*<GDM_EXCLUDE>.*?//\s*</GDM_EXCLUDE>', '', c, flags=re.DOTALL); open('$USER_DIR/$file','w').write(c)"
     fi
