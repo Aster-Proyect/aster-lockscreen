@@ -87,7 +87,7 @@ export class GdmManager {
                 }
                 this._dialog = Main.screenShield._dialog;
                 this._setup();
-                this._applyWallpaper();
+                this._applyWallpaper(null, false, true);
                 this._restartDialogFadeIn();
             }
             return res;
@@ -97,7 +97,7 @@ export class GdmManager {
         if (existingDialog) {
             this._dialog = existingDialog;
             this._setup();
-            this._applyWallpaper();
+            this._applyWallpaper(null, false, true);
             this._restartDialogFadeIn();
         } else {
             let attempts = 0;
@@ -106,7 +106,7 @@ export class GdmManager {
                 if (dlg && !this._dialog) {
                     this._dialog = dlg;
                     this._setup();
-                    this._applyWallpaper();
+                    this._applyWallpaper(null, false, true);
                     this._restartDialogFadeIn();
                     this._findDialogTimeoutId = null;
                     return GLib.SOURCE_REMOVE;

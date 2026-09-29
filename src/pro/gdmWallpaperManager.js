@@ -18,9 +18,11 @@ export class GdmWallpaperManager {
         this.sharedWallpaperMonitor = null;
         this.sharedWallpaperRefreshId = null;
         this.currentWallpaperMetadata = null;
+        this._initialized = false;
     }
 
     setup(dialog, dialogParent) {
+        this._initialized = false;
         this.view = new GdmWallpaperView(dialogParent, dialog);
         this.view.rebuild();
 
@@ -28,7 +30,7 @@ export class GdmWallpaperManager {
             const activeUser = this._gdm._dialog?._user?.get_user_name() ?? null;
             const effectiveUser = activeUser ?? this.themeStore._defaultUser;
             if (userName === null || userName === effectiveUser || (activeUser === null && userName === this.themeStore._defaultUser)) {
-                this.applyWallpaper(activeUser, true, false);
+                this.applyWallpaper(activeUser, this._initialized, false);
             }
         });
 
@@ -49,9 +51,11 @@ export class GdmWallpaperManager {
             const activeUser = this._gdm._dialog?._user?.get_user_name() ?? null;
             this.applyWallpaper(activeUser, false, true);
         }
+        this._initialized = true;
     }
 
     teardown() {
+        this._initialized = false;
         if (this.monitorsChangedId) {
             Main.layoutManager.disconnect(this.monitorsChangedId);
             this.monitorsChangedId = null;

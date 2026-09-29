@@ -689,6 +689,97 @@ assert(gdmPipeline.presentedTheme.meta.promptColor.useInverse === false, 'Lifecy
 assert(gdmPipeline.presentedTheme.meta.promptColor.cancelColor.r === 25, 'Lifecycle: Charlie presents Dark cancel chrome');
 assert(gdmPipeline.presentedTheme.meta.clockAlpha === 0.40, 'Lifecycle: Charlie presents Dark clockAlpha');
 
+// 6. Cold-Boot First-Frame Presentation & Inactive Stack Opacity
+class MockGdmWallpaperView {
+    constructor() {
+        this.stacks = new Map();
+        this.topKey = null;
+        this.topOpacity = 0;
+        this.lastAnimated = null;
+    }
+
+    warm(theme) {
+        const key = theme.userName;
+        if (!this.stacks.has(key)) {
+            // Warmed inactive stacks must initialize at opacity 0
+            this.stacks.set(key, { opacity: 0, key });
+        }
+    }
+
+    present(theme, animate) {
+        const key = theme.userName;
+        let stack = this.stacks.get(key);
+        if (!stack) {
+            stack = { opacity: 0, key };
+            this.stacks.set(key, stack);
+        }
+        this.lastAnimated = animate;
+        if (animate) {
+            stack.opacity = 0;
+            // Simulated ease to 255
+            stack.opacity = 255;
+        } else {
+            stack.opacity = 255;
+        }
+        this.topKey = key;
+        this.topOpacity = stack.opacity;
+    }
+}
+
+class MockGdmWallpaperManager {
+    constructor(themePipeline) {
+        this.themePipeline = themePipeline;
+        this.view = new MockGdmWallpaperView();
+        this._initialized = false;
+    }
+
+    setup(activeUser = null) {
+        this._initialized = false;
+        // Warm all cached accounts
+        for (const [name, theme] of this.themePipeline.themes) {
+            this.view.warm(theme);
+        }
+        // Initial presentation MUST be immediate (animate = false)
+        this.applyWallpaper(activeUser, false, true);
+        this._initialized = true;
+    }
+
+    applyWallpaper(userName, animate = true, syncColorScheme = true) {
+        const effectiveUser = userName ?? this.themePipeline.defaultUser;
+        const theme = this.themePipeline.peek(effectiveUser);
+        if (!theme) return;
+
+        if (syncColorScheme) {
+            const raw = theme.rawMeta ?? theme.meta;
+            const targetScheme = raw?.color_scheme ?? theme.meta?.active_color_scheme;
+            if (targetScheme !== undefined && this.themePipeline.getColorScheme() !== targetScheme) {
+                this.themePipeline.setColorScheme(targetScheme);
+            }
+        }
+        this.view.present(theme, animate);
+    }
+}
+
+const coldBootPipeline = new MockGdmThemePipeline(0); // GDM starts at 0 (Light)
+coldBootPipeline.defaultUser = 'alice'; // Alice is newest
+coldBootPipeline.loadUser(aliceMeta);   // Alice is Dark (1)
+coldBootPipeline.loadUser(bobMeta);     // Bob is Light (0)
+
+const coldBootManager = new MockGdmWallpaperManager(coldBootPipeline);
+coldBootManager.setup(null);
+
+assert(coldBootManager.view.lastAnimated === false, 'Cold-boot: Initial presentation adopts immediately (animate = false)');
+assert(coldBootManager.view.topKey === 'alice', 'Cold-boot: Selected default user is presented as top stack');
+assert(coldBootManager.view.topOpacity === 255, 'Cold-boot: Active top stack is fully opaque (opacity = 255)');
+assert(coldBootManager.view.stacks.get('bob').opacity === 0, 'Cold-boot: Warmed inactive user stack remains hidden (opacity = 0)');
+assert(coldBootPipeline.getColorScheme() === 1, 'Cold-boot: GDM color-scheme synchronized to active user hint without flash');
+
+// Live user switch after initialization uses animated crossfade
+coldBootManager.applyWallpaper('bob', true, true);
+assert(coldBootManager.view.lastAnimated === true, 'Live switch: Account switch performs animated transition (animate = true)');
+assert(coldBootManager.view.topKey === 'bob', 'Live switch: Bob becomes active top stack');
+assert(coldBootManager.view.topOpacity === 255, 'Live switch: Bob top stack is fully opaque');
+
 print(`\n========================================`);
 print(`Test Results: ${passed} Passed, ${failed} Failed`);
 print(`========================================\n`);

@@ -813,7 +813,7 @@ export class GdmWallpaperView {
 
     _createStack(m, theme) {
         const s = theme.slide;
-        const root = new St.Widget({ width: m.monitor.width, height: m.monitor.height, opacity: 255 });
+        const root = new St.Widget({ width: m.monitor.width, height: m.monitor.height, opacity: 0 });
         const mk = image => new St.Widget({
             width: m.monitor.width, height: m.monitor.height,
             style: this._backgroundStyle(theme.meta, image),
