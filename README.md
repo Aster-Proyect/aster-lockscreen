@@ -4,7 +4,7 @@
 
 [![Stars](https://img.shields.io/github/stars/rinzler69-wastaken/wack-sonoma-lockscreen?style=flat&color=yellow)](https://github.com/rinzler69-wastaken/wack-sonoma-lockscreen/stargazers)
 [![License](https://img.shields.io/badge/license-GPL--3.0-blue)](https://github.com/rinzler69-wastaken/wack-sonoma-lockscreen/blob/master/LICENSE)
-[![Release](https://img.shields.io/github/v/release/rinzler69-wastaken/wack-sonoma-lockscreen)](https://github.com/rinzler69-wastaken/wack-sonoma-lockscreen/releases)
+[![Version](https://img.shields.io/badge/dynamic/regex?url=https%3A%2F%2Fraw.githubusercontent.com%2Frinzler69-wastaken%2Fwack-sonoma-lockscreen%2Fmain%2Fmetadata.json&search=%22version-name%22%3A%5Cs*%22(%5B%5E%22%5Cs%5D%2B)&replace=%241&label=version)](https://github.com/rinzler69-wastaken/wack-sonoma-lockscreen/blob/main/metadata.json)
 ![GNOME Version](https://img.shields.io/badge/GNOME-46--50-77767B?logo=gnome&logoColor=white)
 
 A GNOME Shell extension that brings a macOS Sonoma-inspired lock screen experience to your GNOME Desktop — with two full layout modes, wallpaper-adaptive theming, GDM login screen support, and a growing collection of thoughtful quality-of-life features.
