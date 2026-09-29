@@ -351,3 +351,21 @@ msgstr "Perintah pemasangan WACK Shell berhasil disalin ke papan klip!"
 msgid "Open WACK Shell repository"
 msgstr "Buka repositori WACK Shell"
 
+msgid "Clear Visual Cache"
+msgstr "Bersihkan Cache Visual"
+
+msgid "Clears temporary visual data used for wallpapers and vibrancy effects. It will be regenerated automatically."
+msgstr "Menghapus data visual sementara yang digunakan untuk gambar latar dan efek visual. Data akan dibuat ulang secara otomatis."
+
+msgid "Clear"
+msgstr "Bersihkan"
+
+msgid "Clears the visual cache used for wallpapers and vibrancy effects"
+msgstr "Membersihkan cache visual yang digunakan untuk gambar latar dan efek visual"
+
+msgid "Visual cache cleared successfully!"
+msgstr "Cache visual berhasil dibersihkan!"
+
+msgid "Failed to clear cache:"
+msgstr "Gagal membersihkan cache:"
+

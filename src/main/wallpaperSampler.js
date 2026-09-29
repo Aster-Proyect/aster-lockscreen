@@ -107,10 +107,17 @@ export function createBlurredPromptSlice(
     if (cropW <= 0 || cropH <= 0)
         return null;
 
+    // Use uniform scaling to ensure blur slice preserves exact crop aspect ratio and does not distort or stretch
+    const uniformScale = destHeight > 0 && cropH > 0 ? (destHeight / cropH) : 1.0;
+    const targetDestW = (destWidth > 0 && destHeight > 0 && Math.abs(destWidth / cropW - uniformScale) < 0.01)
+        ? destWidth
+        : Math.max(1, Math.round(cropW * uniformScale));
+    const targetDestH = destHeight > 0 ? destHeight : cropH;
+
     if (blurRadius <= 0) {
         const rawPix = srcPixbuf.new_subpixbuf(startX, startY, cropW, cropH);
-        let scaledPix = (cropW !== destWidth || cropH !== destHeight)
-            ? rawPix.scale_simple(destWidth, destHeight, GdkPixbuf.InterpType.BILINEAR)
+        let scaledPix = (cropW !== targetDestW || cropH !== targetDestH)
+            ? rawPix.scale_simple(targetDestW, targetDestH, GdkPixbuf.InterpType.BILINEAR)
             : rawPix.copy();
         const pixels = scaledPix.get_pixels();
         const nChannels = scaledPix.get_n_channels();
@@ -173,7 +180,7 @@ export function createBlurredPromptSlice(
 
     try {
         // Calculate padding in pixbuf coordinates equivalent to blurRadius screen pixels
-        const rInPixbuf = Math.round(blurRadius * (cropW / destWidth));
+        const rInPixbuf = Math.round(blurRadius / uniformScale);
 
         const padStartX = Math.max(0, startX - rInPixbuf);
         const padEndX = Math.min(pbWidth, endX + rInPixbuf);
@@ -187,8 +194,8 @@ export function createBlurredPromptSlice(
 
         const padCrop = srcPixbuf.new_subpixbuf(padStartX, padStartY, padW, padH);
 
-        const scaleX = destWidth / cropW;
-        const scaleY = destHeight / cropH;
+        const scaleX = uniformScale;
+        const scaleY = uniformScale;
         const workW = Math.max(2, Math.round(padW * scaleX));
         const workH = Math.max(2, Math.round(padH * scaleY));
 
@@ -216,8 +223,8 @@ export function createBlurredPromptSlice(
         // Crop the central prompt chip at downsampled scale
         const dsOffX = Math.round((startX - padStartX) * scaleX / dsFactor);
         const dsOffY = Math.round((startY - padStartY) * scaleY / dsFactor);
-        const dsCropW = Math.round(destWidth / dsFactor);
-        const dsCropH = Math.round(destHeight / dsFactor);
+        const dsCropW = Math.max(1, Math.round(targetDestW / dsFactor));
+        const dsCropH = Math.max(1, Math.round(targetDestH / dsFactor));
 
         const dsChipBytes = new Uint8Array(dsCropW * dsCropH * dsChannels);
 
@@ -304,7 +311,7 @@ export function createBlurredPromptSlice(
         );
 
         const finalPixbuf = dsFactor > 1
-            ? dsChipPixbuf.scale_simple(destWidth, destHeight, GdkPixbuf.InterpType.BILINEAR)
+            ? dsChipPixbuf.scale_simple(targetDestW, targetDestH, GdkPixbuf.InterpType.BILINEAR)
             : dsChipPixbuf;
 
         return {

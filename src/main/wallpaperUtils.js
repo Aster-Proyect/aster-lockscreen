@@ -188,6 +188,8 @@ export async function resolveWallpaperSource(uri) {
     let targetUri = uri;
     let targetFilePath = null;
     let transitionInfo = null;
+    let isXml = false;
+    let xmlName = null;
 
     if (uri) {
         let filePath = null;
@@ -205,6 +207,8 @@ export async function resolveWallpaperSource(uri) {
 
         if (filePath) {
             if (filePath.endsWith('.xml')) {
+                isXml = true;
+                xmlName = GLib.path_get_basename(filePath).replace(/\.xml$/i, '');
                 const resolved = await resolveSlideshowXml(filePath);
                 if (resolved) {
                     if (typeof resolved === 'string') {
@@ -213,9 +217,7 @@ export async function resolveWallpaperSource(uri) {
                     } else if (resolved.filePath) {
                         targetFilePath = resolved.filePath;
                         targetUri = GLib.filename_to_uri(resolved.filePath, null);
-                        if (resolved.isTransition) {
-                            transitionInfo = resolved;
-                        }
+                        transitionInfo = resolved;
                     }
                 }
             } else {
@@ -224,7 +226,7 @@ export async function resolveWallpaperSource(uri) {
         }
     }
 
-    return { targetUri, targetFilePath, transitionInfo };
+    return { targetUri, targetFilePath, transitionInfo, isXml, xmlName };
 }
 
 export async function getFileMtimeAndSize(filePath) {

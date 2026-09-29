@@ -351,3 +351,21 @@ msgstr "Skopiowano polecenie instalacji WACK Shell do schowka!"
 msgid "Open WACK Shell repository"
 msgstr "Otwórz repozytorium WACK Shell"
 
+msgid "Clear Visual Cache"
+msgstr "Wyczyść pamięć podręczną efektów"
+
+msgid "Clears temporary visual data used for wallpapers and vibrancy effects. It will be regenerated automatically."
+msgstr "Usuwa tymczasowe dane wizualne używane dla tapet i efektów wizualnych. Zostaną one automatycznie wygenerowane ponownie."
+
+msgid "Clear"
+msgstr "Wyczyść"
+
+msgid "Clears the visual cache used for wallpapers and vibrancy effects"
+msgstr "Czyści pamięć podręczną używaną dla tapet i efektów wizualnych"
+
+msgid "Visual cache cleared successfully!"
+msgstr "Pamięć podręczna została wyczyszczona!"
+
+msgid "Failed to clear cache:"
+msgstr "Nie udało się wyczyścić pamięci podręcznej:"
+

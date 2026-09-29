@@ -351,3 +351,21 @@ msgstr "تم نسخ أمر تثبيت WACK Shell إلى الحافظة!"
 msgid "Open WACK Shell repository"
 msgstr "فتح مستودع WACK Shell"
 
+msgid "Clear Visual Cache"
+msgstr "مسح الذاكرة المؤقتة للرسومات"
+
+msgid "Clears temporary visual data used for wallpapers and vibrancy effects. It will be regenerated automatically."
+msgstr "يمسح البيانات الرسومية المؤقتة المستخدمة للخلفيات وتأثيرات المظهر البصري. ستتم إعادة إنشائها تلقائيًا."
+
+msgid "Clear"
+msgstr "مسح"
+
+msgid "Clears the visual cache used for wallpapers and vibrancy effects"
+msgstr "يمسح الذاكرة المؤقتة للرسومات المستخدمة للخلفيات وتأثيرات المظهر البصري"
+
+msgid "Visual cache cleared successfully!"
+msgstr "تم مسح الذاكرة المؤقتة للرسومات بنجاح!"
+
+msgid "Failed to clear cache:"
+msgstr "فشل مسح الذاكرة المؤقتة:"
+

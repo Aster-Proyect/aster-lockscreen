@@ -351,3 +351,21 @@ msgstr "Comando de instalação do WACK Shell copiado para a área de transferê
 msgid "Open WACK Shell repository"
 msgstr "Abrir repositório do WACK Shell"
 
+msgid "Clear Visual Cache"
+msgstr "Limpar cache visual"
+
+msgid "Clears temporary visual data used for wallpapers and vibrancy effects. It will be regenerated automatically."
+msgstr "Exclui dados visuais temporários usados para papéis de parede e efeitos de vivacidade. Eles serão gerados novamente de forma automática."
+
+msgid "Clear"
+msgstr "Limpar"
+
+msgid "Clears the visual cache used for wallpapers and vibrancy effects"
+msgstr "Limpa o cache visual usado para papéis de parede e efeitos de vivacidade"
+
+msgid "Visual cache cleared successfully!"
+msgstr "Cache visual limpo com sucesso!"
+
+msgid "Failed to clear cache:"
+msgstr "Falha ao limpar o cache:"
+

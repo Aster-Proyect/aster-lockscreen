@@ -17,7 +17,7 @@ import {
     resetAnimationActors,
 } from './src/main/anims.js';
 import { WackClock } from './src/main/wackClock.js';
-import { getWallpaperAlpha, getWallpaperPromptColor, clearCache, initCache } from './src/main/alphaManager.js';
+import { getWallpaperAlpha, getWallpaperPromptColor, clearCache, initCache, precacheSlideshow } from './src/main/alphaManager.js';
 import { WackLayout } from './src/main/layoutManager.js';
 import { NotificationManager } from './src/main/notificationManager.js';
 import {
@@ -156,8 +156,20 @@ export default class WackLockscreenClockExtension extends Extension {
                 if (Main.screenShield.active) {
                     this._updateCustomWallpaperOverlay();
                     this._updateClockAlphaAndPromptColor();
+                } else {
+                    this._stopSlideClock();
                 }
             }, this);
+
+            if (Main.screenShield._loginManager) {
+                Main.screenShield._loginManager.connectObject('prepare-for-sleep', (_lm, aboutToSuspend) => {
+                    if (!aboutToSuspend) {
+                        _log('[WACK/Extension] Resumed from sleep/hibernate, refreshing dynamic wallpaper vibrancy');
+                        this._updateCustomWallpaperOverlay();
+                        this._updateClockAlphaAndPromptColor();
+                    }
+                }, this);
+            }
         }
 
         const lockDialogGroup = Main.screenShield._lockDialogGroup;
@@ -231,7 +243,7 @@ export default class WackLockscreenClockExtension extends Extension {
                         if (this._isSleepInhibited()) {
                             this._showInhibitHint(this.gettext('Sleep prevented by an active process'));
                         } else {
-                            if (Main.screenShield._loginManager?.suspend) {
+                            if (Main.screenShield._loginManager.suspend) {
                                 Main.screenShield._loginManager.suspend();
                             } else {
                                 try {
@@ -578,6 +590,12 @@ export default class WackLockscreenClockExtension extends Extension {
         };
         const textLuminance = this._clock ? this._clock.getTextLuminance() : 1.0;
 
+        if (uri && uri.toLowerCase().endsWith('.xml')) {
+            precacheSlideshow(wallpaperParams).catch(err => {
+                _logError(`[WACK/Extension] precacheSlideshow background warm error: ${err}`);
+            });
+        }
+
         try {
             const [alpha, promptColor] = await Promise.all([
                 getWallpaperAlpha({ ...wallpaperParams, textLuminance }),
@@ -614,6 +632,13 @@ export default class WackLockscreenClockExtension extends Extension {
             this._lastPromptColor = promptColor;
             this._lastClockAlpha = alpha;
 
+            if (promptColor?.transitionInfo?.remainingDuration != null && promptColor.transitionInfo.remainingDuration > 0) {
+                const delaySec = Math.max(1, Math.min(3600, promptColor.transitionInfo.remainingDuration + 0.5));
+                this._armSlideClock(delaySec * 1000);
+            } else {
+                this._stopSlideClock();
+            }
+
             if (this._notifManager) {
                 this._notifManager.setVibrancyInverse(promptColor);
             }
@@ -631,6 +656,30 @@ export default class WackLockscreenClockExtension extends Extension {
             }
         } catch (e) {
             _logError(`[WACK/Extension] _updateClockAlphaAndPromptColor error: ${e}`);
+        }
+    }
+
+    _armSlideClock(delayMs) {
+        this._stopSlideClock();
+        if (!Main.screenShield || !Main.screenShield.active)
+            return;
+
+        _log(`[WACK/Extension] Arming slide clock timer for ${Math.round(delayMs / 1000)}s`);
+        this._slideClockTimeoutId = GLib.timeout_add(GLib.PRIORITY_DEFAULT, delayMs, () => {
+            this._slideClockTimeoutId = 0;
+            if (Main.screenShield && Main.screenShield.active) {
+                _log('[WACK/Extension] Slide clock timer triggered, refreshing wallpaper vibrancy');
+                this._updateCustomWallpaperOverlay();
+                this._updateClockAlphaAndPromptColor();
+            }
+            return GLib.SOURCE_REMOVE;
+        });
+    }
+
+    _stopSlideClock() {
+        if (this._slideClockTimeoutId) {
+            GLib.source_remove(this._slideClockTimeoutId);
+            this._slideClockTimeoutId = 0;
         }
     }
 
@@ -790,7 +839,10 @@ export default class WackLockscreenClockExtension extends Extension {
     disable() {
         if (Main.screenShield) {
             Main.screenShield.disconnectObject(this);
+            if (Main.screenShield._loginManager)
+                Main.screenShield._loginManager.disconnectObject(this);
         }
+        this._stopSlideClock();
 
         this._isActive = false;
         this._wallpaperUpdateSeq = (this._wallpaperUpdateSeq ?? 0) + 1;

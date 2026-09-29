@@ -351,3 +351,21 @@ msgstr "Η εντολή εγκατάστασης του WACK Shell αντιγρ�
 msgid "Open WACK Shell repository"
 msgstr "Άνοιγμα αποθετηρίου WACK Shell"
 
+msgid "Clear Visual Cache"
+msgstr "Εκκαθάριση προσωρινής μνήμης γραφικών"
+
+msgid "Clears temporary visual data used for wallpapers and vibrancy effects. It will be regenerated automatically."
+msgstr "Διαγράφει τα προσωρινά οπτικά δεδομένα που χρησιμοποιούνται για ταπετσαρίες και οπτικά εφέ. Θα αναγεννηθούν αυτόματα."
+
+msgid "Clear"
+msgstr "Εκκαθάριση"
+
+msgid "Clears the visual cache used for wallpapers and vibrancy effects"
+msgstr "Εκκαθαρίζει την προσωρινή μνήμη γραφικών που χρησιμοποιείται για ταπετσαρίες και οπτικά εφέ"
+
+msgid "Visual cache cleared successfully!"
+msgstr "Η προσωρινή μνήμη γραφικών εκκαθαρίστηκε επιτυχώς!"
+
+msgid "Failed to clear cache:"
+msgstr "Αποτυχία εκκαθάρισης προσωρινής μνήμης:"
+

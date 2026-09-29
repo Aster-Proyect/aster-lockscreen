@@ -351,3 +351,21 @@ msgstr "WACK Shell-installatieopdracht gekopieerd naar klembord!"
 msgid "Open WACK Shell repository"
 msgstr "WACK Shell-repository openen"
 
+msgid "Clear Visual Cache"
+msgstr "Visuele cache wissen"
+
+msgid "Clears temporary visual data used for wallpapers and vibrancy effects. It will be regenerated automatically."
+msgstr "Verwijdert tijdelijke visuele gegevens die worden gebruikt voor achtergronden en effecten. Deze worden automatisch opnieuw gegenereerd."
+
+msgid "Clear"
+msgstr "Wissen"
+
+msgid "Clears the visual cache used for wallpapers and vibrancy effects"
+msgstr "Wist de visuele cache die wordt gebruikt voor achtergronden en visuele effecten"
+
+msgid "Visual cache cleared successfully!"
+msgstr "Visuele cache succesvol gewist!"
+
+msgid "Failed to clear cache:"
+msgstr "Fout bij wissen van cache:"
+

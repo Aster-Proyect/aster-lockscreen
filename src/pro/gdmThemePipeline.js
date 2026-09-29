@@ -13,7 +13,8 @@ Gio._promisify(Gio.File.prototype, 'load_contents_async', 'load_contents_finish'
 Gio._promisify(Gio.File.prototype, 'enumerate_children_async', 'enumerate_children_finish');
 Gio._promisify(Gio.FileEnumerator.prototype, 'next_files_async', 'next_files_finish');
 
-const SHARED_DIR = '/var/tmp';
+const SHARED_DIR = '/var/tmp/wack/shared';
+const LEGACY_SHARED_DIR = '/var/tmp';
 const PREFIX = 'wack-shared-wallpaper-';
 const SLIDE_STEPS = 16;
 const MAX_WARM_STACKS = 4;
@@ -100,30 +101,32 @@ export class GdmThemeStore {
 
     loadSync() {
         try {
-            const dir = Gio.File.new_for_path(SHARED_DIR);
-            if (!dir.query_exists(null))
-                return;
-            const enumerator = dir.enumerate_children(
-                'standard::name,time::modified',
-                Gio.FileQueryInfoFlags.NONE,
-                null
-            );
             const entries = [];
-            let info;
-            while ((info = enumerator.next_file(null)) !== null) {
-                const name = info.get_name();
-                if (!name.startsWith(PREFIX) || !name.endsWith('.json'))
+            for (const dPath of [SHARED_DIR, LEGACY_SHARED_DIR]) {
+                const dir = Gio.File.new_for_path(dPath);
+                if (!dir.query_exists(null))
                     continue;
-                const userName = name.slice(PREFIX.length, -'.json'.length);
-                if (userName === 'gdm')
-                    continue;
-                entries.push({
-                    name: userName,
-                    mtime: info.get_attribute_uint64('time::modified'),
-                    file: dir.get_child(name),
-                });
+                const enumerator = dir.enumerate_children(
+                    'standard::name,time::modified',
+                    Gio.FileQueryInfoFlags.NONE,
+                    null
+                );
+                let info;
+                while ((info = enumerator.next_file(null)) !== null) {
+                    const name = info.get_name();
+                    if (!name.startsWith(PREFIX) || !name.endsWith('.json'))
+                        continue;
+                    const userName = name.slice(PREFIX.length, -'.json'.length);
+                    if (userName === 'gdm' || entries.some(e => e.name === userName))
+                        continue;
+                    entries.push({
+                        name: userName,
+                        mtime: info.get_attribute_uint64('time::modified'),
+                        file: dir.get_child(name),
+                    });
+                }
+                enumerator.close(null);
             }
-            enumerator.close(null);
             entries.sort((a, b) => b.mtime - a.mtime);
 
             for (const entry of entries) {
@@ -141,9 +144,14 @@ export class GdmThemeStore {
     }
 
     loadUserSync(userName, file = null) {
-        const metaFile = file ?? Gio.File.new_for_path(`${SHARED_DIR}/${PREFIX}${userName}.json`);
-        if (!metaFile.query_exists(null))
-            return;
+        let metaFile = file ?? Gio.File.new_for_path(`${SHARED_DIR}/${PREFIX}${userName}.json`);
+        if (!metaFile.query_exists(null)) {
+            const legacy = Gio.File.new_for_path(`${LEGACY_SHARED_DIR}/${PREFIX}${userName}.json`);
+            if (legacy.query_exists(null))
+                metaFile = legacy;
+            else
+                return;
+        }
         try {
             const [ok, contents] = metaFile.load_contents(null);
             if (!ok) return;
@@ -178,7 +186,12 @@ export class GdmThemeStore {
 
     /** Also called by the file-monitor handler, debounced per user by the caller. */
     async loadUser(userName, file = null) {
-        const metaFile = file ?? Gio.File.new_for_path(`${SHARED_DIR}/${PREFIX}${userName}.json`);
+        let metaFile = file ?? Gio.File.new_for_path(`${SHARED_DIR}/${PREFIX}${userName}.json`);
+        if (!metaFile.query_exists(null)) {
+            const legacy = Gio.File.new_for_path(`${LEGACY_SHARED_DIR}/${PREFIX}${userName}.json`);
+            if (legacy.query_exists(null))
+                metaFile = legacy;
+        }
         let meta = null;
         let xmlText = null;
         try {
@@ -199,10 +212,15 @@ export class GdmThemeStore {
     }
 
     // ---- internals ---------------------------------------------------------
+    _userVibrancy(meta) {
+        return meta?.promptVibrancyMode ?? this._vibrancy;
+    }
+
     _install(userName, meta, xmlText) {
         const slide = this._resolveSlide(meta, xmlText);
         const image = this._imageKey(meta, slide);
-        const paletteKey = this._paletteKey(image);
+        const userVibrancy = this._userVibrancy(meta);
+        const paletteKey = this._paletteKey(image, userVibrancy);
 
         // Prefer: cached-by-key > palette shipped by the user session (if it
         // matches current slide) > previous palette (stale fallback for display only if matching image).
@@ -210,7 +228,7 @@ export class GdmThemeStore {
         let palette = this._paletteCache.get(paletteKey) ?? null;
         if (palette === null)
             palette = this._adoptShippedPalette(meta, image, slide);
-        if (palette === null && previous !== undefined && previous.palette !== null && previous.palette.image === image)
+        if (palette === null && previous !== undefined && previous.palette !== null && previous.palette.image === image && previous.palette.mode === userVibrancy)
             palette = previous.palette;
 
         const isSlideMismatch = slide !== null && (
@@ -246,18 +264,22 @@ export class GdmThemeStore {
             return `${slide.from}>${slide.to}@${slide.progress}`;
         if (slide !== null)
             return slide.filePath;
+        if (meta?.is_color)
+            return `color:${meta.primary_color}:${meta.secondary_color}:${meta.shading_type}`;
         return resolveGdmAccessibleUri(meta) ?? meta.uri ?? '';
     }
 
-    _paletteKey(image) {
-        return `${image}|${this._vibrancy}`;
+    _paletteKey(image, mode = null) {
+        const effectiveMode = mode ?? this._vibrancy;
+        return `${image}|${effectiveMode}`;
     }
 
     _isPaletteValid(theme) {
         const p = theme.palette;
         if (p === null)
             return false;
-        if (p.mode !== this._vibrancy)
+        const userVibrancy = this._userVibrancy(theme.meta);
+        if (p.mode !== userVibrancy)
             return false;
         if (p.image !== theme.image)
             return false;
@@ -268,9 +290,10 @@ export class GdmThemeStore {
         const pc = meta.promptColor;
         if (!pc || pc.r == null || pc.g == null || pc.b == null)
             return null;
-        if (pc.vibrancyMode && pc.vibrancyMode !== this._vibrancy)
+        const userVibrancy = this._userVibrancy(meta);
+        if (pc.vibrancyMode && pc.vibrancyMode !== userVibrancy)
             return null;
-        const isSolid = isSolidMode(this._vibrancy);
+        const isSolid = isSolidMode(userVibrancy);
         const hasImg = pc.imagePath && Gio.File.new_for_path(pc.imagePath).query_exists(null);
         if (!isSolid && !hasImg)
             return null;
@@ -293,13 +316,13 @@ export class GdmThemeStore {
         }
 
         const palette = {
-            mode: this._vibrancy,
+            mode: userVibrancy,
             image: image,
             layoutKey: this._layout !== null ? this._layout.key : 'default',
             isShipped: true,
             value: pc,
         };
-        this._paletteCache.set(this._paletteKey(image), palette);
+        this._paletteCache.set(this._paletteKey(image, userVibrancy), palette);
         return palette;
     }
 
@@ -352,7 +375,9 @@ export class GdmThemeStore {
                 primaryColor: meta.primary_color,
                 secondaryColor: meta.secondary_color,
                 shadingType: meta.shading_type,
+                pictureOptions: meta.style,
             };
+            const userVibrancy = this._userVibrancy(meta);
             const [value, alpha] = await Promise.all([
                 getWallpaperPromptColor({
                     ...common,
@@ -363,7 +388,7 @@ export class GdmThemeStore {
                     avatarBounds: layout.bounds.avatar,
                     a11yBounds: layout.bounds.a11y,
                     sessionBounds: layout.bounds.session,
-                    vibrancyMode: this._vibrancy,
+                    vibrancyMode: userVibrancy,
                 }),
                 (snapshot.clockAlpha !== null && snapshot.slide === null)
                     ? Promise.resolve(snapshot.clockAlpha)
@@ -382,13 +407,13 @@ export class GdmThemeStore {
             }
 
             const palette = {
-                mode: this._vibrancy,
+                mode: userVibrancy,
                 image: snapshot.image,
                 layoutKey: layout.key,
                 isShipped: false,
                 value,
             };
-            this._paletteCache.set(this._paletteKey(snapshot.image), palette);
+            this._paletteCache.set(this._paletteKey(snapshot.image, userVibrancy), palette);
             this._themes.set(userName, this._freeze({ ...current, palette, clockAlpha: alpha }));
             this._onChanged(userName);
         } finally {
@@ -458,39 +483,43 @@ export class GdmThemeStore {
 
     // ---- async file helpers ------------------------------------------------
     async _listUserFiles() {
-        const dir = Gio.File.new_for_path(SHARED_DIR);
         const out = [];
-        let enumerator = null;
-        try {
-            enumerator = await dir.enumerate_children_async(
-                'standard::name,time::modified', Gio.FileQueryInfoFlags.NONE,
-                GLib.PRIORITY_LOW, this._cancellable);
-            for (;;) {
-                const infos = await enumerator.next_files_async(32, GLib.PRIORITY_LOW, this._cancellable);
-                if (infos.length === 0)
-                    break;
-                for (const info of infos) {
-                    const name = info.get_name();
-                    if (!name.startsWith(PREFIX) || !name.endsWith('.json'))
-                        continue;
-                    const userName = name.slice(PREFIX.length, -'.json'.length);
-                    if (userName === 'gdm')
-                        continue;   // GDM's own file is output, not input
-                    out.push({
-                        name: userName,
-                        mtime: info.get_attribute_uint64('time::modified'),
-                        file: dir.get_child(name),
-                    });
+        for (const dPath of [SHARED_DIR, LEGACY_SHARED_DIR]) {
+            const dir = Gio.File.new_for_path(dPath);
+            if (!dir.query_exists(null))
+                continue;
+            let enumerator = null;
+            try {
+                enumerator = await dir.enumerate_children_async(
+                    'standard::name,time::modified', Gio.FileQueryInfoFlags.NONE,
+                    GLib.PRIORITY_LOW, this._cancellable);
+                for (;;) {
+                    const infos = await enumerator.next_files_async(32, GLib.PRIORITY_LOW, this._cancellable);
+                    if (infos.length === 0)
+                        break;
+                    for (const info of infos) {
+                        const name = info.get_name();
+                        if (!name.startsWith(PREFIX) || !name.endsWith('.json'))
+                            continue;
+                        const userName = name.slice(PREFIX.length, -'.json'.length);
+                        if (userName === 'gdm' || out.some(e => e.name === userName))
+                            continue;   // GDM's own file is output, not input
+                        out.push({
+                            name: userName,
+                            mtime: info.get_attribute_uint64('time::modified'),
+                            file: dir.get_child(name),
+                        });
+                    }
                 }
-            }
-        } catch (e) {
-            if (!this._cancellable.is_cancelled())
-                _logError(`[WACK/ThemeStore] list: ${e}`);
-        } finally {
-            if (enumerator !== null) {
-                try {
-                    enumerator.close(null);
-                } catch (_) {}
+            } catch (e) {
+                if (!this._cancellable.is_cancelled())
+                    _logError(`[WACK/ThemeStore] list ${dPath}: ${e}`);
+            } finally {
+                if (enumerator !== null) {
+                    try {
+                        enumerator.close(null);
+                    } catch (_) {}
+                }
             }
         }
         out.sort((a, b) => b.mtime - a.mtime);
@@ -648,7 +677,11 @@ export class GdmWallpaperView {
 
     _stackKey(theme) {
         const s = theme.slide;
-        return s !== null && s.isTransition ? `${s.from}>${s.to}` : theme.image;
+        if (s !== null && s.isTransition)
+            return `${s.from}>${s.to}`;
+        if (theme.meta?.is_color)
+            return `color:${theme.meta.primary_color}:${theme.meta.secondary_color}:${theme.meta.shading_type}`;
+        return theme.image;
     }
 
     _createStack(m, theme) {

@@ -351,3 +351,21 @@ msgstr "WACK Shell-installationskommandot har kopierats till urklipp!"
 msgid "Open WACK Shell repository"
 msgstr "Öppna WACK Shell-arkiv"
 
+msgid "Clear Visual Cache"
+msgstr "Rensa visuell cache"
+
+msgid "Clears temporary visual data used for wallpapers and vibrancy effects. It will be regenerated automatically."
+msgstr "Rensar tillfälliga visuella data som används för bakgrundsbilder och visuella effekter. De återskapas automatiskt."
+
+msgid "Clear"
+msgstr "Rensa"
+
+msgid "Clears the visual cache used for wallpapers and vibrancy effects"
+msgstr "Rensar den visuella cachen som används för bakgrundsbilder och visuella effekter"
+
+msgid "Visual cache cleared successfully!"
+msgstr "Visuell cache har rensats!"
+
+msgid "Failed to clear cache:"
+msgstr "Kunde inte rensa cache:"
+

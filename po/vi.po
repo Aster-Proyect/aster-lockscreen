@@ -351,3 +351,21 @@ msgstr "Đã sao chép lệnh cài đặt WACK Shell vào bộ nhớ tạm!"
 msgid "Open WACK Shell repository"
 msgstr "Mở kho lưu trữ WACK Shell"
 
+msgid "Clear Visual Cache"
+msgstr "Xóa bộ nhớ đệm hình ảnh"
+
+msgid "Clears temporary visual data used for wallpapers and vibrancy effects. It will be regenerated automatically."
+msgstr "Xóa dữ liệu hình ảnh tạm thời dùng cho hình nền và hiệu ứng thị giác. Dữ liệu sẽ được tự động tạo lại khi cần."
+
+msgid "Clear"
+msgstr "Xóa"
+
+msgid "Clears the visual cache used for wallpapers and vibrancy effects"
+msgstr "Xóa bộ nhớ đệm hình ảnh được sử dụng cho hình nền và hiệu ứng thị giác"
+
+msgid "Visual cache cleared successfully!"
+msgstr "Đã xóa bộ nhớ đệm hình ảnh thành công!"
+
+msgid "Failed to clear cache:"
+msgstr "Không thể xóa bộ nhớ đệm:"
+

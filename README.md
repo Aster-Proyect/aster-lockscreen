@@ -101,7 +101,7 @@ By default, extensions on GNOME Extensions (EGO) cannot run on the GDM login scr
 
 ### What GDM Expansion Adds
 - **Sonoma-style layout on GDM** — the same Cupertino clock, positioning, and prompt placement that you see on the lockscreen, now on the login screen.
-- **Wallpaper Synchronisation** — GDM mirrors the wallpaper of your last active user session (reads from a shared `/var/tmp/wack-shared-wallpaper-<user>.json` file written by the lockscreen side via `CrossSessionManager`). Supports plain images, GNOME XML slideshow wallpapers, and dark-mode switching.
+- **Wallpaper Synchronisation** — GDM mirrors the wallpaper of your last active user session (reads from a shared `/var/tmp/wack/shared/wack-shared-wallpaper-<user>.json` file written by the lockscreen side via `CrossSessionManager`). Supports plain images, GNOME XML slideshow wallpapers, and dark-mode switching.
 - **Prompt Vibrancy on GDM** — the same adaptive tinting logic applied to the GDM auth prompt, driven by the synced wallpaper metadata from the active session.
 - **Cursor Blink sync** — GDM inherits the cursor-blink setting from your session preferences.
 - **Custom Auth Prompt Styling** — the Cupertino-style prompt chip is styled on GDM, matching the lockscreen's appearance.
@@ -194,7 +194,7 @@ make enable
 - **Best at 100% scaling** — The lockscreen layout is tuned for 1× display scaling. At fractional scaling (125%, 150%, etc.) the clock and prompt positions may appear slightly off. 100% + font scaling via GNOME Tweaks gives the cleanest result on HiDPI displays.
 - **Cupertino Mode** — Enable from extension preferences. Hit `Shift+N` on the lockscreen to toggle notification visibility when Always Show User Widget is active.
 - **Prompt Vibrancy** — Colour is computed once per wallpaper and cached to disk. It updates automatically when you change wallpapers.
-- **GDM Wallpaper Sync** — The active session writes wallpaper and tint metadata to `/var/tmp/wack-shared-wallpaper-<user>.json`. GDM reads this on the next login screen display.
+- **GDM Wallpaper Sync** — The active session writes wallpaper and tint metadata to `/var/tmp/wack/shared/wack-shared-wallpaper-<user>.json`. GDM reads this on the next login screen display.
 
 ---
 
@@ -203,8 +203,8 @@ make enable
 - **State-Aware Blur:** Uses `set_enabled` logic for blur effects to avoid unnecessary GPU work during the notification-blur ↔ prompt-blur crossfade.
 - **Cupertino Layout Engine:** Achieves the macOS-style layout through actor reparenting into the lock dialog stack, a custom `WackLayout` allocator that pins the prompt to the lower screen, runtime method patching to suppress the native avatar and blur, and opacity-driven crossfades that smoothly swap between the rest widget, floating avatar, notification cards, and auth prompt across all transition states.
 - **Wallpaper Colour Pipeline:** Decodes the wallpaper pixbuf scaled to the prompt-region dimensions, runs a chroma-weighted hue-bin dominant colour extraction, then converts through WCAG relative luminance → CIE L\* perceptual lightness → APCA contrast to decide between three prompt tinting paths: vibrant hue, hue-preserving darken, or inverted neutral.
-- **Persistent Cache:** Alpha and prompt colour results are stored in a JSON file keyed by URI + mtime + file size. Stale cache entries are automatically evicted.
-- **Cross-Session Sync:** A `CrossSessionManager` running in the unlock-dialog session writes wallpaper path, colour metadata, and key settings to `/var/tmp` so the GDM session (which has no access to your user settings) can pick them up.
+- **Persistent Cache:** Alpha and prompt colour results are stored in structured JSON and image cache files within `/var/tmp/wack/`. Stale cache entries are automatically evicted.
+- **Cross-Session Sync:** A `CrossSessionManager` running in the unlock-dialog session writes wallpaper path, colour metadata, and key settings to `/var/tmp/wack/shared/` so the GDM session (which has no access to your user settings) can pick them up.
 - **GNOME ESModule era:** Built for GNOME 45–50 (the `gi://` import era). No legacy `imports.*` anywhere.
 
 ---

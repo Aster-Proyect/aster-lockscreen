@@ -351,3 +351,21 @@ msgstr "WACK Shellin asennuskomento kopioitu leikepöydälle!"
 msgid "Open WACK Shell repository"
 msgstr "Avaa WACK Shellin tietovarasto"
 
+msgid "Clear Visual Cache"
+msgstr "Tyhjennä visuaalinen välimuisti"
+
+msgid "Clears temporary visual data used for wallpapers and vibrancy effects. It will be regenerated automatically."
+msgstr "Poistaa taustakuville ja visuaalisille tehosteille käytetyt väliaikaiset kuvatiedot. Ne luodaan automaattisesti uudelleen."
+
+msgid "Clear"
+msgstr "Tyhjennä"
+
+msgid "Clears the visual cache used for wallpapers and vibrancy effects"
+msgstr "Tyhjentää taustakuville ja visuaalisille tehosteille käytetyn visuaalisen välimuistin"
+
+msgid "Visual cache cleared successfully!"
+msgstr "Visuaalinen välimuisti tyhjennetty!"
+
+msgid "Failed to clear cache:"
+msgstr "Välimuistin tyhjennys epäonnistui:"
+

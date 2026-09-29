@@ -351,3 +351,21 @@ msgstr "คัดลอกคำสั่งติดตั้ง WACK Shell ไ
 msgid "Open WACK Shell repository"
 msgstr "เปิดที่เก็บ WACK Shell"
 
+msgid "Clear Visual Cache"
+msgstr "ล้างแคชภาพ"
+
+msgid "Clears temporary visual data used for wallpapers and vibrancy effects. It will be regenerated automatically."
+msgstr "ลบข้อมูลภาพชั่วคราวที่ใช้สำหรับภาพพื้นหลังและเอฟเฟกต์ภาพ ข้อมูลจะถูกสร้างขึ้นใหม่โดยอัตโนมัติ"
+
+msgid "Clear"
+msgstr "ล้าง"
+
+msgid "Clears the visual cache used for wallpapers and vibrancy effects"
+msgstr "ล้างแคชภาพที่ใช้สำหรับภาพพื้นหลังและเอฟเฟกต์ภาพ"
+
+msgid "Visual cache cleared successfully!"
+msgstr "ล้างแคชภาพสำเร็จแล้ว!"
+
+msgid "Failed to clear cache:"
+msgstr "ไม่สามารถล้างแคชได้:"
+

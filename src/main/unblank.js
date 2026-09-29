@@ -13,6 +13,7 @@ const UPowerIface = `<node>
 
 export class UnblankManager {
     constructor(extension) {
+        this._extension = extension;
         this._settings = extension._settings;
         this._timerId = 0;
         this._lastOnBattery = null;
@@ -94,6 +95,9 @@ export class UnblankManager {
         if (Main.screenShield._isLocked) {
             Main.screenShield._longLightbox.lightOff();
             Main.screenShield._shortLightbox.lightOff();
+            if (this._extension && this._extension._isActive && Main.screenShield.active) {
+                this._extension._updateClockAlphaAndPromptColor();
+            }
         }
 
         // Re-arm: genuine user input resets the blank delay from the top

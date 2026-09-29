@@ -351,3 +351,21 @@ msgstr "פקודת ההתקנה של WACK Shell הועתקה ללוח!"
 msgid "Open WACK Shell repository"
 msgstr "פתח את מאגר WACK Shell"
 
+msgid "Clear Visual Cache"
+msgstr "ניקוי מטמון חזותי"
+
+msgid "Clears temporary visual data used for wallpapers and vibrancy effects. It will be regenerated automatically."
+msgstr "מוחק נתונים חזותיים זמניים המשמשים לרקעים ואפקטים חזותיים. הם ייווצרו מחדש באופן אוטומטי."
+
+msgid "Clear"
+msgstr "נקה"
+
+msgid "Clears the visual cache used for wallpapers and vibrancy effects"
+msgstr "מנקה את המטמון החזותי המשמש לרקעים ואפקטים חזותיים"
+
+msgid "Visual cache cleared successfully!"
+msgstr "המטמון החזותי נוקה בהצלחה!"
+
+msgid "Failed to clear cache:"
+msgstr "ניקוי המטמון נכשל:"
+

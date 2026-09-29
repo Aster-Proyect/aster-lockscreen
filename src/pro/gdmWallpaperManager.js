@@ -84,8 +84,19 @@ export class GdmWallpaperManager {
         if (this.sharedWallpaperMonitor)
             return;
 
+        const SHARED_DIR = '/var/tmp/wack/shared';
+        for (const dPath of ['/var/tmp/wack', SHARED_DIR]) {
+            try {
+                const d = Gio.File.new_for_path(dPath);
+                if (!d.query_exists(null)) {
+                    d.make_directory_with_parents(null);
+                    d.set_attribute_uint32('unix::mode', 0o1777, Gio.FileQueryInfoFlags.NONE, null);
+                }
+            } catch (_) {}
+        }
+
         try {
-            const dir = Gio.File.new_for_path('/var/tmp');
+            const dir = Gio.File.new_for_path(SHARED_DIR);
             this.sharedWallpaperMonitor = dir.monitor_directory(
                 Gio.FileMonitorFlags.NONE,
                 null
@@ -140,9 +151,19 @@ export class GdmWallpaperManager {
         // Apply prompt styling synchronously
         this._gdm._promptStyling.applyTheme(theme);
 
-        // Update clock alpha
-        if (theme.clockAlpha !== null && this._gdm._clockManager)
-            this._gdm._clockManager.setWallpaperAlpha(theme.clockAlpha, theme.palette ? theme.palette.value : null);
+        // Update clock alpha and presentation settings
+        if (this._gdm._clockManager) {
+            if (theme.clockAlpha !== null)
+                this._gdm._clockManager.setWallpaperAlpha(theme.clockAlpha, theme.palette ? theme.palette.value : null);
+            if (this._gdm._clockManager.clock && theme.meta) {
+                if (theme.meta.clockFormat !== undefined)
+                    this._gdm._clockManager.clock.setClockFormat(theme.meta.clockFormat);
+                if (theme.meta.dateStyle !== undefined)
+                    this._gdm._clockManager.clock.setDateStyle(theme.meta.dateStyle);
+                if (theme.meta.userLocale !== undefined)
+                    this._gdm._clockManager.clock.setLocale(theme.meta.userLocale);
+            }
+        }
 
         // Update lockscreen message
         this._gdm._updateLockscreenMessage(theme.meta);
@@ -163,7 +184,17 @@ export class GdmWallpaperManager {
             return;
 
         try {
-            const metaFile = Gio.File.new_for_path('/var/tmp/wack-shared-wallpaper-gdm.json');
+            const SHARED_DIR = '/var/tmp/wack/shared';
+            for (const dPath of ['/var/tmp/wack', SHARED_DIR]) {
+                try {
+                    const d = Gio.File.new_for_path(dPath);
+                    if (!d.query_exists(null)) {
+                        d.make_directory_with_parents(null);
+                        d.set_attribute_uint32('unix::mode', 0o1777, Gio.FileQueryInfoFlags.NONE, null);
+                    }
+                } catch (_) {}
+            }
+            const metaFile = Gio.File.new_for_path(`${SHARED_DIR}/wack-shared-wallpaper-gdm.json`);
             metaFile.replace_contents(
                 JSON.stringify(metadata),
                 null,

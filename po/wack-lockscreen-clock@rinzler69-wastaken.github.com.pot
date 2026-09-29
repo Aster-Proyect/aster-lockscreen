@@ -351,3 +351,21 @@ msgstr ""
 msgid "Open WACK Shell repository"
 msgstr ""
 
+msgid "Clear Visual Cache"
+msgstr ""
+
+msgid "Clears temporary visual data used for wallpapers and vibrancy effects. It will be regenerated automatically."
+msgstr ""
+
+msgid "Clear"
+msgstr ""
+
+msgid "Clears the visual cache used for wallpapers and vibrancy effects"
+msgstr ""
+
+msgid "Visual cache cleared successfully!"
+msgstr ""
+
+msgid "Failed to clear cache:"
+msgstr ""
+

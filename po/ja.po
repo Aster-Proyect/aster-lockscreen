@@ -351,3 +351,21 @@ msgstr "WACK Shell インストールコマンドをクリップボードにコ�
 msgid "Open WACK Shell repository"
 msgstr "WACK Shell リポジトリを開く"
 
+msgid "Clear Visual Cache"
+msgstr "ビジュアルキャッシュを消去"
+
+msgid "Clears temporary visual data used for wallpapers and vibrancy effects. It will be regenerated automatically."
+msgstr "壁紙や視覚効果に使用される一時的な画像データを削除します。必要に応じて自動的に再生成されます。"
+
+msgid "Clear"
+msgstr "消去"
+
+msgid "Clears the visual cache used for wallpapers and vibrancy effects"
+msgstr "壁紙や視覚効果に使用されているビジュアルキャッシュを消去します"
+
+msgid "Visual cache cleared successfully!"
+msgstr "ビジュアルキャッシュを正常に消去しました！"
+
+msgid "Failed to clear cache:"
+msgstr "キャッシュの消去に失敗しました:"
+

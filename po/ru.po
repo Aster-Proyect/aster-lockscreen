@@ -351,3 +351,21 @@ msgstr "Команда установки WACK Shell скопирована в �
 msgid "Open WACK Shell repository"
 msgstr "Открыть репозиторий WACK Shell"
 
+msgid "Clear Visual Cache"
+msgstr "Очистить визуальный кэш"
+
+msgid "Clears temporary visual data used for wallpapers and vibrancy effects. It will be regenerated automatically."
+msgstr "Удаляет временные графические данные, используемые для обоев и визуальных эффектов. Они будут созданы заново автоматически."
+
+msgid "Clear"
+msgstr "Очистить"
+
+msgid "Clears the visual cache used for wallpapers and vibrancy effects"
+msgstr "Очищает визуальный кэш, используемый для обоев и визуальных эффектов"
+
+msgid "Visual cache cleared successfully!"
+msgstr "Визуальный кэш успешно очищен!"
+
+msgid "Failed to clear cache:"
+msgstr "Не удалось очистить кэш:"
+

@@ -351,3 +351,21 @@ msgstr "Comando di installazione di WACK Shell copiato negli appunti!"
 msgid "Open WACK Shell repository"
 msgstr "Apri repository di WACK Shell"
 
+msgid "Clear Visual Cache"
+msgstr "Svuota cache visiva"
+
+msgid "Clears temporary visual data used for wallpapers and vibrancy effects. It will be regenerated automatically."
+msgstr "Elimina i dati visivi temporanei usati per gli sfondi e gli effetti di vividezza. Verranno rigenerati automaticamente."
+
+msgid "Clear"
+msgstr "Svuota"
+
+msgid "Clears the visual cache used for wallpapers and vibrancy effects"
+msgstr "Svuota la cache visiva utilizzata per gli sfondi e gli effetti di vividezza"
+
+msgid "Visual cache cleared successfully!"
+msgstr "Cache visiva svuotata con successo!"
+
+msgid "Failed to clear cache:"
+msgstr "Impossibile svuotare la cache:"
+

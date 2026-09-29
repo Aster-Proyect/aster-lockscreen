@@ -351,3 +351,21 @@ msgstr "WACK Shell kurulum komutu panoya kopyalandı!"
 msgid "Open WACK Shell repository"
 msgstr "WACK Shell Deposunu Aç"
 
+msgid "Clear Visual Cache"
+msgstr "Görsel Önbelleği Temizle"
+
+msgid "Clears temporary visual data used for wallpapers and vibrancy effects. It will be regenerated automatically."
+msgstr "Duvar kağıtları ve görsel efektler için kullanılan geçici görsel verileri siler. Otomatik olarak yeniden oluşturulacaktır."
+
+msgid "Clear"
+msgstr "Temizle"
+
+msgid "Clears the visual cache used for wallpapers and vibrancy effects"
+msgstr "Duvar kağıtları ve görsel efektler için kullanılan görsel önbelleği temizler"
+
+msgid "Visual cache cleared successfully!"
+msgstr "Görsel önbellek başarıyla temizlendi!"
+
+msgid "Failed to clear cache:"
+msgstr "Önbellek temizlenemedi:"
+

@@ -351,3 +351,21 @@ msgstr "WACK Shell इंस्टॉल कमांड क्लिपबो�
 msgid "Open WACK Shell repository"
 msgstr "WACK Shell रिपॉजिटरी खोलें"
 
+msgid "Clear Visual Cache"
+msgstr "विज़ुअल कैश साफ़ करें"
+
+msgid "Clears temporary visual data used for wallpapers and vibrancy effects. It will be regenerated automatically."
+msgstr "वॉलपेपर और विज़ुअल प्रभावों के लिए उपयोग किए जाने वाले अस्थायी विज़ुअल डेटा को हटाता है। यह स्वचालित रूप से फिर से उत्पन्न हो जाएगा।"
+
+msgid "Clear"
+msgstr "साफ़ करें"
+
+msgid "Clears the visual cache used for wallpapers and vibrancy effects"
+msgstr "वॉलपेपर और विज़ुअल प्रभावों के लिए उपयोग किए जाने वाले विज़ुअल कैश को साफ़ करता है"
+
+msgid "Visual cache cleared successfully!"
+msgstr "विज़ुअल कैश सफलतापूर्वक साफ़ किया गया!"
+
+msgid "Failed to clear cache:"
+msgstr "कैश साफ़ करने में विफल:"
+

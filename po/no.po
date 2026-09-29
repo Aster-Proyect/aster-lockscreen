@@ -351,3 +351,21 @@ msgstr "WACK Shell-installasjonskommando kopiert til utklippstavlen!"
 msgid "Open WACK Shell repository"
 msgstr "Åpne WACK Shell-depot"
 
+msgid "Clear Visual Cache"
+msgstr "Tøm visuell hurtigbuffer"
+
+msgid "Clears temporary visual data used for wallpapers and vibrancy effects. It will be regenerated automatically."
+msgstr "Sletter midlertidige visuelle data som brukes til bakgrunnsbilder og visuelle effekter. De genereres automatisk på nytt."
+
+msgid "Clear"
+msgstr "Tøm"
+
+msgid "Clears the visual cache used for wallpapers and vibrancy effects"
+msgstr "Tømmer den visuelle hurtigbufferen som brukes til bakgrunnsbilder og visuelle effekter"
+
+msgid "Visual cache cleared successfully!"
+msgstr "Visuell hurtigbuffer tømt!"
+
+msgid "Failed to clear cache:"
+msgstr "Kunne ikke tømme hurtigbuffer:"
+

@@ -5,6 +5,7 @@ import Gtk from 'gi://Gtk';
 import Gdk from 'gi://Gdk';
 import { ExtensionPreferences } from 'resource:///org/gnome/Shell/Extensions/js/extensions/prefs.js';
 import { CLOCK_ANIMATION_OPTIONS, PROMPT_ANIMATION_OPTIONS } from './src/main/anims.js';
+import { flushAllCache } from './src/main/alphaCache.js';
 
 function _isWackShellInstalled() {
     const userPath = GLib.build_filenamev([GLib.get_user_data_dir(), 'gnome-shell', 'extensions', 'wack-shell@rinzler69-wastaken.github.com']);
@@ -61,6 +62,10 @@ function _getGdmStatus(dir) {
     }
 }
 // </GDM_EXCLUDE>
+
+function _flushWackCache() {
+    flushAllCache();
+}
 
 export default class WackLockscreenClockPreferences extends ExtensionPreferences {
     fillPreferencesWindow(window) {
@@ -1172,7 +1177,33 @@ export default class WackLockscreenClockPreferences extends ExtensionPreferences
 
         extrasGroup.add(wackShellExpander);
 
+        // 3. Flush Cache Action Row
+        const flushCacheRow = new Adw.ActionRow({
+            title: _('Clear Visual Cache'),
+            subtitle: _('Clears temporary visual data used for wallpapers and vibrancy effects. It will be regenerated automatically.'),
+        });
 
+        const flushBtn = new Gtk.Button({
+            label: _('Clear'),
+            tooltip_text: _('Clears the visual cache used for wallpapers and vibrancy effects'),
+            css_classes: ['destructive-action'],
+            valign: Gtk.Align.CENTER,
+        });
+        flushBtn.connect('clicked', () => {
+            try {
+                _flushWackCache();
+                window.add_toast(new Adw.Toast({
+                    title: _('Visual cache cleared successfully!'),
+                }));
+            } catch (e) {
+                window.add_toast(new Adw.Toast({
+                    title: `${_('Failed to clear cache:')} ${e.message}`,
+                }));
+            }
+        });
+
+        flushCacheRow.add_suffix(flushBtn);
+        extrasGroup.add(flushCacheRow);
 
         animPage.add(extrasGroup);
         window.add(animPage);

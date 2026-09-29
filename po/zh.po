@@ -351,3 +351,21 @@ msgstr "WACK Shell 安装命令已复制到剪贴板！"
 msgid "Open WACK Shell repository"
 msgstr "打开 WACK Shell 仓库"
 
+msgid "Clear Visual Cache"
+msgstr "清除视觉缓存"
+
+msgid "Clears temporary visual data used for wallpapers and vibrancy effects. It will be regenerated automatically."
+msgstr "清除用于壁纸和视觉效果的临时图像数据。后续将自动重新生成。"
+
+msgid "Clear"
+msgstr "清除"
+
+msgid "Clears the visual cache used for wallpapers and vibrancy effects"
+msgstr "清除用于壁纸和视觉效果的视觉缓存"
+
+msgid "Visual cache cleared successfully!"
+msgstr "视觉缓存已成功清除！"
+
+msgid "Failed to clear cache:"
+msgstr "清除缓存失败："
+

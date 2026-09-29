@@ -351,3 +351,21 @@ msgstr "WACK Shell 설치 명령어가 클립보드에 복사되었습니다!"
 msgid "Open WACK Shell repository"
 msgstr "WACK Shell 저장소 열기"
 
+msgid "Clear Visual Cache"
+msgstr "시각 효과 캐시 비우기"
+
+msgid "Clears temporary visual data used for wallpapers and vibrancy effects. It will be regenerated automatically."
+msgstr "배경화면 및 시각 효과에 사용되는 임시 시각 데이터를 삭제합니다. 필요한 경우 자동으로 다시 생성됩니다."
+
+msgid "Clear"
+msgstr "비우기"
+
+msgid "Clears the visual cache used for wallpapers and vibrancy effects"
+msgstr "배경화면 및 시각 효과에 사용되는 시각 캐시를 비웁니다"
+
+msgid "Visual cache cleared successfully!"
+msgstr "시각 효과 캐시를 성공적으로 비웠습니다!"
+
+msgid "Failed to clear cache:"
+msgstr "캐시 비우기 실패:"
+
