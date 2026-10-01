@@ -1,7 +1,7 @@
 {
-  "name": "WACK - Sonoma Lockscreen",
-  "description": "macOS Sonoma-inspired lock screen for GNOME Shell. Part of the WACK Project.",
-  "uuid": "wack-lockscreen-clock@rinzler69-wastaken.github.com",
+  "name": "Aster Lockscreen",
+  "description": "macOS Sonoma-inspired lock screen for GNOME Shell.",
+  "uuid": "aster-lockscreen@Aster-Proyect.github.com",
   "shell-version": [
     "46",
     "47",
@@ -13,9 +13,9 @@
     "unlock-dialog",
     "gdm"
   ],
-  "gettext-domain": "wack-lockscreen-clock@rinzler69-wastaken.github.com",
-  "settings-schema": "org.gnome.shell.extensions.wack-lockscreen-clock",
-  "url": "https://github.com/rinzler69-wastaken/wack-sonoma-lockscreen",
+  "gettext-domain": "aster-lockscreen@Aster-Proyect.github.com",
+  "settings-schema": "org.gnome.shell.extensions.aster-lockscreen",
+  "url": "https://github.com/Aster-Proyect/aster-lockscreen",
   "version-name": "2.1.0 PRO",
   "donations": {
     "paypal": "ArtFazil",
