@@ -2,7 +2,7 @@ import { ExtensionPreferences } from 'resource:///org/gnome/Shell/Extensions/js/
 import { buildHomePage } from './src/prefs/homePage.js';
 import { buildConfigPage } from './src/prefs/configPage.js';
 
-export default class WackLockscreenClockPreferences extends ExtensionPreferences {
+export default class AsterLockscreenPreferences extends ExtensionPreferences {
     fillPreferencesWindow(window) {
         const _ = this.gettext.bind(this);
         const settings = this.getSettings();
